@@ -256,6 +256,9 @@ function App() {
   const [isAIReviewLoading, setIsAIReviewLoading] =
     useState(false);
 
+  const [aiReviewError, setAIReviewError] =
+    useState<string | null>(null);
+
 
   // ====================================================
   // GameState
@@ -512,10 +515,43 @@ function App() {
       }
 
 
-      const sourceNodeId =
+      const problemNodeId =
         activeFix.issue.nodeIds?.[0];
 
-      if (!sourceNodeId) {
+      if (!problemNodeId) {
+        return;
+      }
+
+
+      const isMissingResourceSourceFix =
+        activeFix.issue.type ===
+        'missing_resource_source';
+
+      const sourceNodeId =
+        isMissingResourceSourceFix
+          ? targetNodeId
+          : problemNodeId;
+
+      const resolvedTargetNodeId =
+        isMissingResourceSourceFix
+          ? problemNodeId
+          : targetNodeId;
+
+
+      if (sourceNodeId === resolvedTargetNodeId) {
+        return;
+      }
+
+
+      const hasEquivalentEdge =
+        edges.some(
+          (edge) =>
+            edge.source === sourceNodeId &&
+            edge.target === resolvedTargetNodeId &&
+            edge.data?.relation === relation
+        );
+
+      if (hasEquivalentEdge) {
         return;
       }
 
@@ -525,7 +561,7 @@ function App() {
 
         source: sourceNodeId,
 
-        target: targetNodeId,
+        target: resolvedTargetNodeId,
 
         label: relation
           .replaceAll('_', ' ')
@@ -537,10 +573,19 @@ function App() {
       };
 
 
-      setEdges((currentEdges) => [
-        ...currentEdges,
-        newEdge,
-      ]);
+      setEdges((currentEdges) => {
+        const alreadyExists =
+          currentEdges.some(
+            (edge) =>
+              edge.source === newEdge.source &&
+              edge.target === newEdge.target &&
+              edge.data?.relation === relation
+          );
+
+        return alreadyExists
+          ? currentEdges
+          : [...currentEdges, newEdge];
+      });
 
 
       // Clear highlight
@@ -1004,6 +1049,8 @@ function App() {
     async () => {
       try {
         setIsAIReviewLoading(true);
+        setAIReviewError(null);
+        setAIReview(null);
 
         const skeleton =
           serializeSkeleton(
@@ -1055,6 +1102,10 @@ function App() {
         console.error(
           'AI Review Error:',
           error
+        );
+
+        setAIReviewError(
+          'AI review failed. Check that the AI server is running and try again.'
         );
 
       } finally {
@@ -1249,6 +1300,23 @@ function App() {
             );
           }}
         />
+
+      ) : aiReviewError ? (
+
+        <div className="inspector">
+          <h2>AI Review</h2>
+
+          <p role="alert">
+            {aiReviewError}
+          </p>
+
+          <button
+            onClick={() => setAIReviewError(null)}
+            style={toolbarButtonStyle}
+          >
+            Dismiss
+          </button>
+        </div>
 
       ) : activeFix &&
         activeFix.fix.actionType ===

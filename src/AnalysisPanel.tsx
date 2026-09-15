@@ -135,7 +135,12 @@ function AnalysisPanel({
           {issues.map((issue) => {
 
             const fixes =
-              issueFixMap[issue.type] ?? [];
+              (issueFixMap[issue.type] ?? [])
+                .filter(
+                  (fix) =>
+                    fix.actionType ===
+                    'connect_existing'
+                );
 
 
             return (
