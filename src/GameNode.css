@@ -1,0 +1,68 @@
+.game-node {
+  min-width: 150px;
+  padding: 12px 14px;
+  border: 2px solid #333;
+  border-radius: 10px;
+  background: white;
+  font-family: Arial, sans-serif;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.12);
+}
+
+.game-node-type {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 1px;
+  opacity: 0.65;
+  margin-bottom: 5px;
+}
+
+.game-node-label {
+  font-size: 16px;
+  font-weight: 700;
+}
+
+.game-node-importance {
+  margin-top: 4px;
+  font-size: 11px;
+  text-transform: uppercase;
+  opacity: 0.55;
+}
+
+.game-node-description {
+  margin-top: 8px;
+  font-size: 12px;
+  line-height: 1.35;
+  opacity: 0.75;
+}
+
+.game-node-activity {
+  border-style: solid;
+}
+
+.game-node-system {
+  border-style: double;
+}
+
+.game-node-resource {
+  border-radius: 18px;
+}
+
+.game-node-challenge {
+  border-width: 3px;
+}
+
+.game-node-progression {
+  border-style: dashed;
+}
+
+.game-node-goal {
+  border-radius: 4px;
+}
+
+.game-node-highlighted {
+  outline: 3px solid #ffb020;
+  outline-offset: 3px;
+
+  box-shadow:
+    0 0 0 5px rgba(255, 176, 32, 0.15);
+}

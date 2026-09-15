@@ -1,0 +1,70 @@
+.inspector {
+  width: 320px;
+  min-width: 320px;
+  flex-shrink: 0;
+
+  height: 100%;
+  padding: 20px;
+  box-sizing: border-box;
+
+  border-left: 1px solid #ddd;
+  background: #fafafa;
+
+  overflow-y: auto;
+}
+
+.inspector h2 {
+  margin-top: 0;
+  margin-bottom: 24px;
+}
+
+.inspector label {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 18px;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.inspector input,
+.inspector select,
+.inspector textarea {
+  padding: 8px 10px;
+  border: 1px solid #ccc;
+  border-radius: 6px;
+  font-size: 14px;
+  font-family: inherit;
+}
+
+.inspector textarea {
+  resize: vertical;
+}
+
+.inspector-empty {
+  width: 320px;
+  min-width: 320px;
+  flex-shrink: 0;
+
+  height: 100%;
+  padding: 20px;
+  box-sizing: border-box;
+
+  border-left: 1px solid #ddd;
+  background: #fafafa;
+
+  color: #777;
+}
+
+.delete-button {
+  width: 100%;
+  padding: 10px;
+  border: 1px solid #999;
+  border-radius: 6px;
+  background: white;
+  cursor: pointer;
+}
+
+.delete-button:hover {
+  background: #eee;
+}
