@@ -12,6 +12,24 @@
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.12);
 }
 
+.game-node-collapse {
+  position: absolute;
+  top: -10px;
+  right: -10px;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: 1px solid #94a3b8;
+  border-radius: 50%;
+  background: #f8fafc;
+  color: #334155;
+  cursor: pointer;
+  font-size: 16px;
+  line-height: 18px;
+}
+
+.game-node-collapse:disabled { cursor: not-allowed; opacity: 0.45; }
+
 .game-node-type {
   font-size: 10px;
   font-weight: 700;
@@ -78,3 +96,7 @@
   box-shadow:
     0 0 0 5px rgba(255, 176, 32, 0.15);
 }
+
+.game-node-selected-focus { outline: 3px solid #4f6bed; outline-offset: 4px; box-shadow: 0 0 0 6px rgba(79, 107, 237, 0.16); }
+.game-node-connected-focus { outline: 2px solid #76a5ff; outline-offset: 2px; }
+.game-node-deemphasized { opacity: 0.3; }

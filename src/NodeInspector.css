@@ -41,6 +41,21 @@
   resize: vertical;
 }
 
+.node-relationship-context {
+  margin: 20px 0;
+  padding: 12px;
+  border: 1px solid #dbe3ee;
+  border-radius: 8px;
+  background: #fff;
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.node-relationship-context h3 { margin: 8px 0 4px; font-size: 13px; }
+.node-relationship-context h3:first-child { margin-top: 0; }
+.node-relationship-context ul { margin: 4px 0 10px; padding-left: 18px; }
+.node-relationship-context p { color: #64748b; }
+
 .inspector-empty {
   width: 320px;
   min-width: 320px;

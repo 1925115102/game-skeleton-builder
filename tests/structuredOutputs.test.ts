@@ -4,6 +4,7 @@ import { zodTextFormat } from 'openai/helpers/zod';
 import { AIReviewSchema } from '../server/aiReviewSchema';
 import { DesignAnalysisSchema, DesignChangeSetSchema } from '../server/designAssistantSchema';
 import { GuidedDesignProposalSchema } from '../server/guidedDesignSchema';
+import { GameReportSchema } from '../server/gameReportSchema';
 
 test('every AI structured-output schema converts to a strict required JSON schema', () => {
   const schemas = [
@@ -11,6 +12,7 @@ test('every AI structured-output schema converts to a strict required JSON schem
     ['guided_design_proposal', GuidedDesignProposalSchema],
     ['design_analysis', DesignAnalysisSchema],
     ['design_change_set', DesignChangeSetSchema],
+    ['game_report', GameReportSchema],
   ] as const;
 
   for (const [name, schema] of schemas) {

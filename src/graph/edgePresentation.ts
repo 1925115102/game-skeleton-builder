@@ -8,6 +8,7 @@ export const relationshipLabel = (relation: GameEdgeType): string => ({
   unlocks: 'Unlocks',
   improves: 'Improves',
   leads_to: 'Leads to',
+  contains: 'Contains',
 })[relation];
 
 export function hasOppositeDirection(edge: GameEdge, allEdges: GameEdge[]): boolean {
@@ -15,9 +16,23 @@ export function hasOppositeDirection(edge: GameEdge, allEdges: GameEdge[]): bool
     && candidate.source === edge.target && candidate.target === edge.source);
 }
 
-export function edgePresentation(edge: GameEdge, allEdges: GameEdge[], highlighted = false) {
+type PresentedEdge = Partial<GameEdge> & { pathOptions?: { offset: number; borderRadius: number } };
+
+export function edgePresentation(edge: GameEdge, allEdges: GameEdge[], highlighted = false): PresentedEdge {
   const color = highlighted ? '#ff9f1c' : '#64748b';
   const relation = edge.data?.relation ?? 'leads_to';
+  if (relation === 'contains') {
+    return {
+      type: 'hierarchyEdge',
+      label: undefined,
+      data: { ...edge.data, relation },
+      markerEnd: undefined,
+      style: { ...edge.style, stroke: highlighted ? '#ff9f1c' : '#94a3b8', strokeWidth: highlighted ? 2.5 : 1.2, strokeDasharray: '4 4', opacity: highlighted ? 1 : 0.75 },
+      labelStyle: { fill: '#64748b', fontSize: 10 },
+      labelBgStyle: { fill: '#ffffff', fillOpacity: 0.8 },
+      pathOptions: { offset: 18, borderRadius: 10 },
+    };
+  }
   const opposite = hasOppositeDirection(edge, allEdges);
   const pairedEdges = allEdges
     .filter((candidate) => candidate.source === edge.target && candidate.target === edge.source)

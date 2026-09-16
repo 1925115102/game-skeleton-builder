@@ -16,7 +16,9 @@ Use only these node categories:
 activity, system, resource, challenge, progression, goal.
 
 Use only these relationship types:
-produces, consumes, requires, unlocks, improves, leads_to.
+produces, consumes, requires, unlocks, improves, leads_to, contains.
+
+The contains relationship means parent → child subsystem decomposition only. It is not gameplay flow, progression, or a resource transfer.
 
 For relationship endpoints, use { kind: "proposed_node", id } for a node in your proposedNodes list, and { kind: "existing_node", id } only for an ID in the current skeleton.
 

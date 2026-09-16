@@ -10,14 +10,20 @@ import type {
 } from './types';
 
 import './GameNode.css';
+import { useHierarchyUi } from './HierarchyUiContext';
 
 
 function GameNodeComponent({
   data,
+  id,
 }: NodeProps<GameNode>) {
 
   const nodeData =
     data as GameNodeData;
+  const hierarchyUi = useHierarchyUi();
+  const isParent = hierarchyUi?.parentIds.has(id) ?? false;
+  const isCollapsed = hierarchyUi?.collapsedParentIds.has(id) ?? false;
+  const collapseBlocked = hierarchyUi?.blockedCollapseParentIds.has(id) ?? false;
 
 
   return (
@@ -30,6 +36,9 @@ function GameNodeComponent({
         nodeData.highlighted
           ? 'game-node-highlighted'
           : '',
+        (nodeData as GameNodeData & { selectionFocus?: 'selected' | 'connected'; deEmphasized?: boolean }).selectionFocus === 'selected' ? 'game-node-selected-focus' : '',
+        (nodeData as GameNodeData & { selectionFocus?: 'selected' | 'connected'; deEmphasized?: boolean }).selectionFocus === 'connected' ? 'game-node-connected-focus' : '',
+        (nodeData as GameNodeData & { selectionFocus?: 'selected' | 'connected'; deEmphasized?: boolean }).deEmphasized ? 'game-node-deemphasized' : '',
       ].join(' ')}
     >
 
@@ -51,6 +60,13 @@ function GameNodeComponent({
       <div className="game-node-importance">
         {nodeData.importance.toUpperCase()}
       </div>
+
+      {isParent && <button
+        className="game-node-collapse"
+        title={collapseBlocked ? 'This subsystem has external gameplay relationships and cannot be collapsed yet.' : isCollapsed ? 'Expand subsystem' : 'Collapse subsystem'}
+        disabled={collapseBlocked}
+        onClick={(event) => { event.stopPropagation(); hierarchyUi?.toggleParent(id); }}
+      >{isCollapsed ? '+' : '−'}</button>}
 
 
       {handles.map(({ position, slot, style }) => (

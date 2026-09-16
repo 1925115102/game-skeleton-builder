@@ -6,6 +6,7 @@ import type {
   GameNodeType,
 } from '../types';
 import { relationshipLabel } from '../graph/edgePresentation';
+import { containsCycle } from '../graph/hierarchy';
 
 export type DesignChangeOperation =
   | { type: 'ADD_NODE'; node: { id: string; label: string; gameType: GameNodeType; importance: GameNodeImportance; description: string | null } }
@@ -29,7 +30,7 @@ const importanceTypes = new Set<GameNodeImportance>([
   'core', 'supporting', 'optional',
 ]);
 const edgeTypes = new Set<GameEdgeType>([
-  'produces', 'consumes', 'requires', 'unlocks', 'improves', 'leads_to',
+  'produces', 'consumes', 'requires', 'unlocks', 'improves', 'leads_to', 'contains',
 ]);
 
 export function applyDesignChangeSet(
@@ -84,6 +85,8 @@ export function applyDesignChangeSet(
     if (seenEdges.has(key)) return invalid('The change set would create a duplicate equivalent edge.');
     seenEdges.add(key);
   }
+
+  if (containsCycle(finalEdges)) return invalid('The change set would create a hierarchy containment cycle.');
 
   return { success: true, nodes: finalNodes, edges: finalEdges };
 }

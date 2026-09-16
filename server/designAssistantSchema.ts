@@ -2,7 +2,7 @@ import { z } from 'zod/v4';
 
 const nodeType = z.enum(['activity', 'system', 'resource', 'challenge', 'progression', 'goal']);
 const importance = z.enum(['core', 'supporting', 'optional']);
-const relation = z.enum(['produces', 'consumes', 'requires', 'unlocks', 'improves', 'leads_to']);
+const relation = z.enum(['produces', 'consumes', 'requires', 'unlocks', 'improves', 'leads_to', 'contains']);
 
 const projectAndSkeleton = z.object({
   project: z.object({ name: z.string(), brief: z.string() }),

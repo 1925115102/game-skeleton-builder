@@ -1,25 +1,11 @@
 import {
   useCallback,
   useEffect,
+  useMemo,
   useRef,
   useState,
   type ChangeEvent,
 } from 'react';
-
-import type {
-  IssueFixOption,
-} from './analyzer/issueFixMap';
-
-
-import {
-  analyzeSkeleton
-} from './analyzer/analyzeSkeleton'
-
-import AnalysisPanel from './AnalysisPanel';
-
-import type {
-  AnalysisIssue,
-} from './analyzer/analyzerTypes';
 
 import {
   ReactFlow,
@@ -38,9 +24,9 @@ import '@xyflow/react/dist/style.css';
 
 import GameNodeComponent from './GameNode';
 import RelationshipEdge from './RelationshipEdge';
+import HierarchyEdge from './HierarchyEdge';
 import NodeInspector from './NodeInspector';
 import EdgeInspector from './EdgeInspector';
-import FixPanel from './FixPanel';
 
 import type {
   GameNodeData,
@@ -55,16 +41,10 @@ import {
   serializeSkeleton,
 } from './ai/skeletonSerializer';
 
-import AIAnalysisPanel
-  from './AIAnalysisPanel';
-
 import type {
   AIReviewResult,
   AIIssue,
-  AISuggestion,
 } from './ai/aiTypes';
-
-import AILoadingPanel from './AILoadingPanel';
 import ProjectPanel from './ProjectPanel';
 import GuidedDesignPanel from './GuidedDesignPanel';
 
@@ -85,6 +65,12 @@ import { getAutoLayoutedNodes } from './graph/autoLayout';
 import { edgePresentation, relationshipLabel } from './graph/edgePresentation';
 import { routeEdges } from './graph/edgeRouting';
 import { markIssueApplied } from './ai/issueLifecycle';
+import { getVisibleHierarchyGraph, hiddenExternalGameplayConnectionCount, hierarchyParents } from './graph/hierarchy';
+import { selectedNodeNeighborhood } from './graph/neighborhood';
+import { HierarchyUiContext } from './HierarchyUiContext';
+import GameReportPanel from './GameReportPanel';
+import type { GameReport } from './ai/gameReportTypes';
+import { reportShouldBecomeStale } from './ai/reportStaleness';
 
 // ======================================================
 // Custom Node Components
@@ -96,6 +82,7 @@ const nodeTypes = {
 
 const edgeTypes = {
   relationshipEdge: RelationshipEdge,
+  hierarchyEdge: HierarchyEdge,
 };
 
 
@@ -272,12 +259,6 @@ function App() {
       null
     );
 
-  const [isAIReviewLoading] =
-    useState(false);
-
-  const [aiReviewError, setAIReviewError] =
-    useState<string | null>(null);
-
   const [projectName, setProjectName] =
     useState('Untitled Game');
 
@@ -298,12 +279,62 @@ function App() {
   const [analysisStale, setAnalysisStale] = useState(false);
   const [isApplyingChangeSet, setIsApplyingChangeSet] = useState(false);
   const [assistantHighlight, setAssistantHighlight] = useState<AssistantHighlight>({ nodeIds: [], edgeIds: [] });
+  const [collapsedHierarchyParentIds, setCollapsedHierarchyParentIds] = useState<string[]>([]);
+  const [showGameReport, setShowGameReport] = useState(false);
+  const [gameReport, setGameReport] = useState<GameReport | null>(null);
+  const [gameReportLoading, setGameReportLoading] = useState(false);
+  const [gameReportError, setGameReportError] = useState<string | null>(null);
+  const [gameReportStale, setGameReportStale] = useState(false);
   const nodesRef = useRef(nodes);
   const edgesRef = useRef(edges);
   const applyingRef = useRef(false);
 
   useEffect(() => { nodesRef.current = nodes; }, [nodes]);
   useEffect(() => { edgesRef.current = edges; }, [edges]);
+
+  const visibleHierarchyGraph = useMemo(
+    () => getVisibleHierarchyGraph(nodes, edges, collapsedHierarchyParentIds),
+    [nodes, edges, collapsedHierarchyParentIds]
+  );
+  const hierarchyParentIds = useMemo(() => hierarchyParents(edges), [edges]);
+  const blockedCollapseParentIds = useMemo(() => new Set(
+    [...hierarchyParentIds].filter((parentId) => hiddenExternalGameplayConnectionCount(parentId, edges) > 0)
+  ), [hierarchyParentIds, edges]);
+
+  const selectionContext = useMemo(() => {
+    return selectedNodeNeighborhood(selectedNodeId, edges);
+  }, [selectedNodeId, edges]);
+
+  const displayedNodes = useMemo<GameNode[]>(() => visibleHierarchyGraph.nodes.map((node): GameNode => ({
+    ...node,
+    data: {
+      ...node.data,
+      selectionFocus: selectedNodeId ? (node.id === selectedNodeId ? 'selected' : selectionContext.nodeIds.has(node.id) ? 'connected' : undefined) : undefined,
+      deEmphasized: Boolean(selectedNodeId && !selectionContext.nodeIds.has(node.id)),
+    },
+  })), [visibleHierarchyGraph.nodes, selectedNodeId, selectionContext]);
+
+  const displayedEdges = useMemo<GameEdge[]>(() => visibleHierarchyGraph.edges.map((edge): GameEdge => {
+    if (!selectedNodeId) return edge;
+    const related = selectionContext.edgeIds.has(edge.id);
+    const presentation = edgePresentation(edge, visibleHierarchyGraph.edges, related);
+    return { ...edge, ...presentation, style: { ...presentation.style, opacity: related ? 1 : 0.12 } };
+  }), [visibleHierarchyGraph.edges, selectedNodeId, selectionContext]);
+
+  const reportSemanticSignature = useMemo(() => JSON.stringify({
+    projectName,
+    projectBrief,
+    nodes: nodes.map(({ id, data }) => ({ id, label: data.label, type: data.gameType, importance: data.importance, description: data.description })),
+    edges: edges.map((edge) => ({ id: edge.id, source: edge.source, target: edge.target, relation: edge.data?.relation })),
+  }), [projectName, projectBrief, nodes, edges]);
+  const previousReportSemanticSignature = useRef(reportSemanticSignature);
+  useEffect(() => {
+    if (previousReportSemanticSignature.current !== reportSemanticSignature) {
+      const previousSignature = previousReportSemanticSignature.current;
+      previousReportSemanticSignature.current = reportSemanticSignature;
+      if (reportShouldBecomeStale(previousSignature, reportSemanticSignature, Boolean(gameReport))) setGameReportStale(true);
+    }
+  }, [reportSemanticSignature, gameReport]);
 
   useEffect(() => {
     const nodeIds = new Set(assistantHighlight.nodeIds);
@@ -370,13 +401,6 @@ function App() {
 
   const importInputRef =
     useRef<HTMLInputElement | null>(null);
-
-  const [
-    aiReview,
-    setAIReview,
-  ] = useState<
-    AIReviewResult | null
-  >(null);
 
 
   // ====================================================
@@ -514,241 +538,6 @@ function App() {
   );
 
   // ====================================================
-  // analyze skeleton
-  // ====================================================
-  const runAnalysis = useCallback(() => {
-
-    const issues =
-      analyzeSkeleton(
-        nodes,
-        edges
-      );
-
-    setAnalysisIssues(
-      issues
-    );
-
-    setShowAnalysis(
-      true
-    );
-
-
-    // Analysis mode should not
-    // keep a node or edge selected.
-
-    setSelectedNodeId(
-      null
-    );
-
-    setSelectedEdgeId(
-      null
-    );
-
-
-    console.log(
-      'Skeleton Analysis:'
-    );
-
-    console.table(
-      issues
-    );
-
-  }, [nodes, edges]);
-
-  const [analysisIssues, setAnalysisIssues] =
-  useState<AnalysisIssue[]>([]);
-
-  const [showAnalysis, setShowAnalysis] =
-    useState(false);
-
-  const selectSuggestedFix = useCallback(
-    (
-      issue: AnalysisIssue,
-      fix: IssueFixOption
-    ) => {
-
-      setActiveFix({
-        issue,
-        fix,
-      });
-
-      const nodeId =
-        issue.nodeIds?.[0];
-
-      if (nodeId) {
-        setNodes((currentNodes) =>
-          currentNodes.map((node) => ({
-            ...node,
-
-            data: {
-              ...node.data,
-              highlighted:
-                node.id === nodeId,
-            },
-          }))
-        );
-      }
-
-    },
-    [setNodes]
-  );
-
-  // ====================================================
-  // Fix Issue
-  // ====================================================
-
-  const [activeFix, setActiveFix] = useState<{
-    issue: AnalysisIssue;
-    fix: IssueFixOption;
-  } | null>(null);
-
-  const applyConnectExistingFix = useCallback(
-    (
-      targetNodeId: string,
-      relation: GameEdgeType
-    ) => {
-
-      if (!activeFix) {
-        return;
-      }
-
-
-      const problemNodeId =
-        activeFix.issue.nodeIds?.[0];
-
-      if (!problemNodeId) {
-        return;
-      }
-
-
-      const isMissingResourceSourceFix =
-        activeFix.issue.type ===
-        'missing_resource_source';
-
-      const sourceNodeId =
-        isMissingResourceSourceFix
-          ? targetNodeId
-          : problemNodeId;
-
-      const resolvedTargetNodeId =
-        isMissingResourceSourceFix
-          ? problemNodeId
-          : targetNodeId;
-
-
-      if (sourceNodeId === resolvedTargetNodeId) {
-        return;
-      }
-
-
-      const hasEquivalentEdge =
-        edges.some(
-          (edge) =>
-            edge.source === sourceNodeId &&
-            edge.target === resolvedTargetNodeId &&
-            edge.data?.relation === relation
-        );
-
-      if (hasEquivalentEdge) {
-        return;
-      }
-
-
-      const newEdge: GameEdge = {
-        id: crypto.randomUUID(),
-
-        source: sourceNodeId,
-
-        target: resolvedTargetNodeId,
-
-        label: relation
-          .replaceAll('_', ' ')
-          .toUpperCase(),
-
-        data: {
-          relation,
-        },
-      };
-
-
-      setEdges((currentEdges) => {
-        const alreadyExists =
-          currentEdges.some(
-            (edge) =>
-              edge.source === newEdge.source &&
-              edge.target === newEdge.target &&
-              edge.data?.relation === relation
-          );
-
-        return alreadyExists
-          ? currentEdges
-          : [...currentEdges, newEdge];
-      });
-
-
-      // Clear highlight
-      setNodes((currentNodes) =>
-        currentNodes.map((node) => ({
-          ...node,
-
-          data: {
-            ...node.data,
-            highlighted: false,
-          },
-        }))
-      );
-
-
-      setActiveFix(null);
-
-
-      // Re-run analysis after fixing
-      const nextEdges = [
-        ...edges,
-        newEdge,
-      ];
-
-      const newIssues =
-        analyzeSkeleton(
-          nodes,
-          nextEdges
-        );
-
-      setAnalysisIssues(
-        newIssues
-      );
-
-      setShowAnalysis(true);
-
-    },
-    [
-      activeFix,
-      edges,
-      nodes,
-      setEdges,
-      setNodes,
-    ]
-  );
-
-  const cancelFix =
-    useCallback(() => {
-
-      setActiveFix(null);
-
-      setNodes((currentNodes) =>
-        currentNodes.map((node) => ({
-          ...node,
-
-          data: {
-            ...node.data,
-            highlighted: false,
-          },
-        }))
-      );
-
-    }, [setNodes]);
-
-  // ====================================================
   // Edge Creation
   // ====================================================
 
@@ -796,11 +585,26 @@ function App() {
   }, [nodes, setEdges]);
 
   const autoLayout = useCallback(() => {
-    setNodes(getAutoLayoutedNodes(nodes, edges));
+    const layoutedVisibleNodes = getAutoLayoutedNodes(visibleHierarchyGraph.nodes, visibleHierarchyGraph.edges);
+    const positions = new Map(layoutedVisibleNodes.map((node) => [node.id, node.position]));
+    setNodes((currentNodes) => currentNodes.map((node) => positions.has(node.id)
+      ? { ...node, position: positions.get(node.id)! }
+      : node));
     window.setTimeout(() => {
       reactFlowInstance?.fitView({ padding: 0.18, duration: 350 });
     }, 0);
-  }, [edges, nodes, reactFlowInstance, setNodes]);
+  }, [visibleHierarchyGraph, reactFlowInstance, setNodes]);
+
+  const toggleHierarchyParent = useCallback((nodeId: string) => {
+    if (blockedCollapseParentIds.has(nodeId)) return;
+    setCollapsedHierarchyParentIds((current) => {
+      const next = new Set(current);
+      if (next.has(nodeId)) next.delete(nodeId); else next.add(nodeId);
+      return [...next];
+    });
+    setSelectedNodeId(null);
+    setSelectedEdgeId(null);
+  }, [blockedCollapseParentIds]);
 
 
   // ====================================================
@@ -929,9 +733,7 @@ function App() {
           return {
             ...edge,
 
-            label: relation
-              .replaceAll('_', ' ')
-              .toUpperCase(),
+            label: relationshipLabel(relation),
 
             data: {
               ...edge.data,
@@ -964,198 +766,6 @@ function App() {
     [setEdges]
   );
 
-  // ---------------------------------------------
-  // Select  Analysis Issue
-  // ---------------------------------------------
-  const selectAnalysisIssue = useCallback(
-    (issue: AnalysisIssue) => {
-
-      const nodeId =
-        issue.nodeIds[0];
-
-      if (!nodeId) {
-        return;
-      }
-
-
-      const targetNode =
-        nodes.find(
-          (node) =>
-            node.id === nodeId
-        );
-
-      if (!targetNode) {
-        return;
-      }
-
-      // Highlight target node
-      setNodes((currentNodes) =>
-        currentNodes.map((node) => ({
-          ...node,
-
-          data: {
-            ...node.data,
-
-            highlighted:
-              node.id === nodeId,
-          },
-        }))
-      );
-
-
-      // Select the target node
-      setSelectedNodeId(
-        nodeId
-      );
-
-      setSelectedEdgeId(
-        null
-      );
-
-
-      // Keep Analysis Panel open for now
-      setShowAnalysis(
-        true
-      );
-
-      // Move viewport to node
-      reactFlowInstance?.setCenter(
-        targetNode.position.x + 80,
-        targetNode.position.y + 40,
-        {
-          zoom: 1.3,
-          duration: 500,
-        }
-      );
-
-    },
-    [
-      nodes,
-      reactFlowInstance,
-    ]
-  );
-
-  // ====================================================
-  // Select AI Issue
-  // ====================================================
-
-  const selectAIIssue = useCallback(
-    (issue: AIIssue) => {
-
-      const affectedIds =
-        new Set(issue.affectedNodeIds);
-
-      setNodes((currentNodes) =>
-        currentNodes.map((node) => ({
-          ...node,
-
-          data: {
-            ...node.data,
-
-            highlighted:
-              affectedIds.has(node.id),
-          },
-        }))
-      );
-
-
-      // 如果至少有一个相关节点，
-      // 自动把镜头移动过去
-      const firstNodeId =
-        issue.affectedNodeIds[0];
-
-      if (firstNodeId) {
-
-        const targetNode =
-          nodes.find(
-            (node) =>
-              node.id === firstNodeId
-          );
-
-        if (targetNode) {
-
-          reactFlowInstance?.setCenter(
-            targetNode.position.x + 80,
-            targetNode.position.y + 40,
-            {
-              zoom: 1.3,
-              duration: 500,
-            }
-          );
-
-        }
-      }
-
-    },
-    [
-      nodes,
-      setNodes,
-      reactFlowInstance,
-    ]
-  );
-
-
-  // ====================================================
-  // Select AI Suggestion
-  // ====================================================
-
-  const selectAISuggestion = useCallback(
-    (
-      suggestion: AISuggestion
-    ) => {
-
-      const affectedIds =
-        new Set(
-          suggestion.affectedNodeIds
-        );
-
-      setNodes((currentNodes) =>
-        currentNodes.map((node) => ({
-          ...node,
-
-          data: {
-            ...node.data,
-
-            highlighted:
-              affectedIds.has(node.id),
-          },
-        }))
-      );
-
-
-      const firstNodeId =
-        suggestion.affectedNodeIds[0];
-
-      if (firstNodeId) {
-
-        const targetNode =
-          nodes.find(
-            (node) =>
-              node.id === firstNodeId
-          );
-
-        if (targetNode) {
-
-          reactFlowInstance?.setCenter(
-            targetNode.position.x + 80,
-            targetNode.position.y + 40,
-            {
-              zoom: 1.3,
-              duration: 500,
-            }
-          );
-
-        }
-      }
-
-    },
-    [
-      nodes,
-      setNodes,
-      reactFlowInstance,
-    ]
-  );  
-
   // ====================================================
   // Guided Design
   // ====================================================
@@ -1167,7 +777,6 @@ function App() {
         setIsGuidedDesignLoading(true);
         setGuidedDesignError(null);
         setGuidedDesignProposal(null);
-        setAIReview(null);
 
         const response = await fetch(
           'http://localhost:3001/api/guided-design',
@@ -1464,6 +1073,28 @@ function App() {
     }
   }, [projectName, projectBrief, nodes, edges]);
 
+  const requestGameReport = useCallback(async () => {
+    try {
+      setShowGameReport(true);
+      setGameReportLoading(true);
+      setGameReportError(null);
+      const response = await fetch('http://localhost:3001/api/game-report', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ project: { name: projectName, brief: projectBrief }, skeleton: serializeSkeleton(nodes, edges) }),
+      });
+      if (!response.ok) throw new Error(`Server returned ${response.status}.`);
+      const data = await response.json() as { result: GameReport };
+      setGameReport(data.result);
+      setGameReportStale(false);
+    } catch (error) {
+      console.error('Game Report generation error:', error);
+      setGameReportError('Game Report generation failed. Check that the AI server is running and try again.');
+    } finally {
+      setGameReportLoading(false);
+    }
+  }, [projectName, projectBrief, nodes, edges]);
+
   const requestDesignChangeSet = useCallback(async (issue: AIIssue) => {
     const cached = suggestionsByIssue[issue.id];
     if (cached) {
@@ -1565,9 +1196,10 @@ function App() {
         }}
       >
 
+        <HierarchyUiContext.Provider value={{ parentIds: hierarchyParentIds, collapsedParentIds: new Set(collapsedHierarchyParentIds), blockedCollapseParentIds, toggleParent: toggleHierarchyParent }}>
         <ReactFlow
-          nodes={nodes}
-          edges={edges}
+          nodes={displayedNodes}
+          edges={displayedEdges}
           nodeTypes={nodeTypes}
           edgeTypes={edgeTypes}
 
@@ -1578,22 +1210,16 @@ function App() {
           onNodeClick={(_, node) => {
             setSelectedNodeId(node.id);
             setSelectedEdgeId(null);
-            setShowAnalysis(false);
-            setActiveFix(null);
           }}
 
           onEdgeClick={(_, edge) => {
             setSelectedEdgeId(edge.id);
             setSelectedNodeId(null);
-            setShowAnalysis(false);
-            setActiveFix(null);
           }}
 
           onPaneClick={() => {
             setSelectedNodeId(null);
             setSelectedEdgeId(null);
-            setShowAnalysis(false);
-            setActiveFix(null);
           }}
 
           onInit={(instance) =>
@@ -1668,13 +1294,6 @@ function App() {
               </button>
 
               <button
-                onClick={runAnalysis}
-                style={toolbarButtonStyle}
-              >
-                Analysis
-              </button>
-              
-              <button
                 onClick={() => {
                   setShowDesignAssistant(true);
                   setDesignAssistantError(null);
@@ -1682,6 +1301,13 @@ function App() {
                 style={toolbarButtonStyle}
               >
                 AI Design Assistant
+              </button>
+
+              <button
+                onClick={() => { setShowGameReport(true); setGameReportError(null); }}
+                style={toolbarButtonStyle}
+              >
+                Game Report
               </button>
 
               <input
@@ -1703,6 +1329,7 @@ function App() {
           </Panel>
 
         </ReactFlow>
+        </HierarchyUiContext.Provider>
 
       </div>
 
@@ -1711,7 +1338,18 @@ function App() {
           INSPECTOR
       ================================================= */}
 
-      {showDesignAssistant ? (
+      {showGameReport ? (
+
+        <GameReportPanel
+          report={gameReport}
+          loading={gameReportLoading}
+          stale={gameReportStale}
+          error={gameReportError}
+          onGenerate={requestGameReport}
+          onClose={() => setShowGameReport(false)}
+        />
+
+      ) : showDesignAssistant ? (
 
         <DesignAssistantPanel
           analysis={designAssistantAnalysis}
@@ -1748,32 +1386,6 @@ function App() {
           onClose={() => {
             setShowDesignAssistant(false);
             setAssistantHighlight({ nodeIds: [], edgeIds: [] });
-          }}
-        />
-
-      ) : isAIReviewLoading ? (
-
-        <AILoadingPanel />
-
-      ) : aiReview ? (
-
-        <AIAnalysisPanel
-          review={aiReview}
-          onSelectIssue={selectAIIssue}
-          onSelectSuggestion={selectAISuggestion}
-          onClose={() => {
-            setAIReview(null);
-
-            setNodes((currentNodes) =>
-              currentNodes.map((node) => ({
-                ...node,
-
-                data: {
-                  ...node.data,
-                  highlighted: false,
-                },
-              }))
-            );
           }}
         />
 
@@ -1817,43 +1429,6 @@ function App() {
           onClose={() => setShowProjectPanel(false)}
         />
 
-      ) : aiReviewError ? (
-
-        <div className="inspector">
-          <h2>AI Review</h2>
-
-          <p role="alert">
-            {aiReviewError}
-          </p>
-
-          <button
-            onClick={() => setAIReviewError(null)}
-            style={toolbarButtonStyle}
-          >
-            Dismiss
-          </button>
-        </div>
-
-      ) : activeFix &&
-        activeFix.fix.actionType ===
-          'connect_existing' ? (
-
-        <FixPanel
-          issue={activeFix.issue}
-          fix={activeFix.fix}
-          nodes={nodes}
-          onApply={applyConnectExistingFix}
-          onCancel={cancelFix}
-        />
-
-      ) : showAnalysis ? (
-
-        <AnalysisPanel
-          issues={analysisIssues}
-          onSelectIssue={selectAnalysisIssue}
-          onSelectFix={selectSuggestedFix}
-        />
-
       ) : selectedEdge ? (
 
         <EdgeInspector
@@ -1867,6 +1442,8 @@ function App() {
 
         <NodeInspector
           node={selectedNode}
+          edges={edges}
+          nodes={nodes}
           onUpdateNode={updateNode}
           onDeleteNode={deleteNode}
         />

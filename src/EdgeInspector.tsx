@@ -36,6 +36,7 @@ const relationTypes: GameEdgeType[] = [
   'unlocks',
   'improves',
   'leads_to',
+  'contains',
 ];
 
 

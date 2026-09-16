@@ -37,7 +37,8 @@ export type GameEdgeType =
   | 'requires'
   | 'unlocks'
   | 'improves'
-  | 'leads_to';
+  | 'leads_to'
+  | 'contains';
 
 
 // ======================================================
@@ -52,6 +53,8 @@ export type GameNodeData =
     description?: string;
 
     highlighted?: boolean;
+    selectionFocus?: 'selected' | 'connected';
+    deEmphasized?: boolean;
   };
 
 
@@ -63,6 +66,8 @@ export type GameEdgeData =
   Record<string, unknown> & {
 
     relation: GameEdgeType;
+    highlighted?: boolean;
+    bidirectionalOffset?: number;
 
   };
 

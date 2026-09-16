@@ -46,6 +46,8 @@ import {
   changePrompt,
 } from './designAssistantPrompt';
 import { validateExistingEdgeReferences } from './designAssistantValidation';
+import { GameReportRequestSchema, GameReportSchema } from './gameReportSchema';
+import { gameReportPrompt } from './gameReportPrompt';
 
 const serverDirectory = dirname(
   fileURLToPath(import.meta.url)
@@ -281,6 +283,23 @@ app.post('/api/design-assistant/change-set', async (req, res) => {
   } catch (error) {
     logServerError('Design Assistant change set failed', error);
     return res.status(500).json({ error: 'Design change request failed.' });
+  }
+});
+
+app.post('/api/game-report', async (req, res) => {
+  const parsed = GameReportRequestSchema.safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: 'Invalid game report request.' });
+  try {
+    const response = await client.responses.parse({
+      model: 'gpt-5.6-luna',
+      input: gameReportPrompt(parsed.data),
+      text: { format: zodTextFormat(GameReportSchema, 'game_report') },
+    });
+    if (!response.output_parsed) throw new Error('AI returned no parsed game report.');
+    return res.json({ result: response.output_parsed });
+  } catch (error) {
+    logServerError('Game Report generation failed', error);
+    return res.status(500).json({ error: 'Game Report generation failed.' });
   }
 });
 

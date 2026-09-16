@@ -1,4 +1,6 @@
 import type { Node } from '@xyflow/react';
+import type { GameEdge } from './types';
+import { relationshipLabel } from './graph/edgePresentation';
 import type {
   GameNodeData,
   GameNodeImportance,
@@ -7,6 +9,8 @@ import type {
 
 interface NodeInspectorProps {
   node: Node | null;
+  edges: GameEdge[];
+  nodes: Node[];
   onUpdateNode: (
     nodeId: string,
     updates: Partial<GameNodeData>
@@ -31,6 +35,8 @@ const importanceTypes: GameNodeImportance[] = [
 
 function NodeInspector({
   node,
+  edges,
+  nodes,
   onUpdateNode,
   onDeleteNode,
 }: NodeInspectorProps) {
@@ -43,6 +49,10 @@ function NodeInspector({
   }
 
   const data = node.data as unknown as GameNodeData;
+  const nodeById = new Map(nodes.map((graphNode) => [graphNode.id, graphNode]));
+  const labelFor = (nodeId: string) => (nodeById.get(nodeId)?.data as GameNodeData | undefined)?.label ?? 'Unknown node';
+  const incoming = edges.filter((edge) => edge.target === node.id);
+  const outgoing = edges.filter((edge) => edge.source === node.id);
 
   return (
     <div className="inspector">
@@ -59,6 +69,13 @@ function NodeInspector({
           }
         />
       </label>
+
+      <section className="node-relationship-context">
+        <h3>Incoming</h3>
+        {incoming.length ? <ul>{incoming.map((edge) => <li key={edge.id}>{labelFor(edge.source)} <strong>— {relationshipLabel(edge.data?.relation ?? 'leads_to')} →</strong> {data.label}</li>)}</ul> : <p>No incoming relationships.</p>}
+        <h3>Outgoing</h3>
+        {outgoing.length ? <ul>{outgoing.map((edge) => <li key={edge.id}>{data.label} <strong>— {relationshipLabel(edge.data?.relation ?? 'leads_to')} →</strong> {labelFor(edge.target)}</li>)}</ul> : <p>No outgoing relationships.</p>}
+      </section>
 
       <label>
         Type

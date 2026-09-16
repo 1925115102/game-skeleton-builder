@@ -25,7 +25,7 @@ export function getAutoLayoutedNodes(nodes: GameNode[], edges: GameEdge[]): Game
   for (const node of nodes) graph.setNode(node.id, { ...COMPACT_NODE_DIMENSIONS });
   for (const edge of edges) {
     if (nodes.some((node) => node.id === edge.source) && nodes.some((node) => node.id === edge.target)) {
-      graph.setEdge(edge.source, edge.target, {}, edge.id);
+      graph.setEdge(edge.source, edge.target, { weight: edge.data?.relation === 'contains' ? 1 : 3 }, edge.id);
     }
   }
 

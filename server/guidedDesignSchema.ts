@@ -22,6 +22,7 @@ const GameEdgeTypeSchema = z.enum([
   'unlocks',
   'improves',
   'leads_to',
+  'contains',
 ]);
 
 const NodeReferenceSchema = z.discriminatedUnion('kind', [
