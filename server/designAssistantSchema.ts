@@ -21,8 +21,8 @@ export const DesignAnalysisSchema = z.object({
 });
 
 const changeOperation = z.discriminatedUnion('type', [
-  z.object({ type: z.literal('ADD_NODE'), node: z.object({ id: z.string().min(1), label: z.string().min(1), gameType: nodeType, importance, description: z.string().optional() }) }),
-  z.object({ type: z.literal('UPDATE_NODE'), nodeId: z.string().min(1), updates: z.object({ label: z.string().min(1).optional(), gameType: nodeType.optional(), importance: importance.optional(), description: z.string().optional() }) }),
+  z.object({ type: z.literal('ADD_NODE'), node: z.object({ id: z.string().min(1), label: z.string().min(1), gameType: nodeType, importance, description: z.string().nullable() }) }),
+  z.object({ type: z.literal('UPDATE_NODE'), nodeId: z.string().min(1), replacement: z.object({ label: z.string().min(1), gameType: nodeType, importance, description: z.string().nullable() }) }),
   z.object({ type: z.literal('REMOVE_NODE'), nodeId: z.string().min(1) }),
   z.object({ type: z.literal('ADD_EDGE'), edge: z.object({ id: z.string().min(1), source: z.string().min(1), target: z.string().min(1), relation }) }),
   z.object({ type: z.literal('UPDATE_EDGE'), edgeId: z.string().min(1), relation }),

@@ -8,9 +8,9 @@ const node = (id: string): GameNode => ({ id, type: 'gameNode', position: { x: 0
 const edge = (id: string, source: string, target: string): GameEdge => ({ id, source, target, data: { relation: 'leads_to' } });
 
 test('applies add, update, remove node operations', () => {
-  const added = applyDesignChangeSet([node('a')], [], { title: '', rationale: '', expectedEffect: '', operations: [{ type: 'ADD_NODE', node: { id: 'b', label: 'B', gameType: 'resource', importance: 'supporting' } }] });
+  const added = applyDesignChangeSet([node('a')], [], { title: '', rationale: '', expectedEffect: '', operations: [{ type: 'ADD_NODE', node: { id: 'b', label: 'B', gameType: 'resource', importance: 'supporting', description: null } }] });
   assert.equal(added.success, true); if (!added.success) return;
-  const updated = applyDesignChangeSet(added.nodes, [], { title: '', rationale: '', expectedEffect: '', operations: [{ type: 'UPDATE_NODE', nodeId: 'b', updates: { label: 'Materials' } }] });
+  const updated = applyDesignChangeSet(added.nodes, [], { title: '', rationale: '', expectedEffect: '', operations: [{ type: 'UPDATE_NODE', nodeId: 'b', replacement: { label: 'Materials', gameType: 'resource', importance: 'supporting', description: null } }] });
   assert.equal(updated.success, true); if (!updated.success) return;
   assert.equal(updated.nodes[1].data.label, 'Materials');
   const removed = applyDesignChangeSet(updated.nodes, [], { title: '', rationale: '', expectedEffect: '', operations: [{ type: 'REMOVE_NODE', nodeId: 'b' }] });
@@ -20,7 +20,7 @@ test('applies add, update, remove node operations', () => {
 test('applies valid edge operations and mixed change sets', () => {
   const result = applyDesignChangeSet([node('a'), node('b')], [edge('old', 'a', 'b')], { title: '', rationale: '', expectedEffect: '', operations: [
     { type: 'UPDATE_EDGE', edgeId: 'old', relation: 'produces' },
-    { type: 'ADD_NODE', node: { id: 'c', label: 'C', gameType: 'system', importance: 'supporting' } },
+    { type: 'ADD_NODE', node: { id: 'c', label: 'C', gameType: 'system', importance: 'supporting', description: null } },
     { type: 'ADD_EDGE', edge: { id: 'new', source: 'b', target: 'c', relation: 'consumes' } },
   ] });
   assert.equal(result.success, true); if (result.success) assert.equal(result.edges.length, 2);
@@ -32,7 +32,7 @@ test('rejects dangling, self, duplicate, and invalid references atomically', () 
     [{ type: 'ADD_EDGE', edge: { id: 'x', source: 'a', target: 'missing', relation: 'leads_to' } }],
     [{ type: 'ADD_EDGE', edge: { id: 'x', source: 'a', target: 'a', relation: 'leads_to' } }],
     [{ type: 'ADD_EDGE', edge: { id: 'x', source: 'a', target: 'b', relation: 'leads_to' } }],
-    [{ type: 'UPDATE_NODE', nodeId: 'missing', updates: { label: 'Nope' } }],
+    [{ type: 'UPDATE_NODE', nodeId: 'missing', replacement: { label: 'Nope', gameType: 'activity', importance: 'core', description: null } }],
     [{ type: 'REMOVE_NODE', nodeId: 'a' }],
   ] as const;
   for (const operations of cases) {

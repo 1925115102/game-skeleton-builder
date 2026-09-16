@@ -7,8 +7,8 @@ import type {
 } from '../types';
 
 export type DesignChangeOperation =
-  | { type: 'ADD_NODE'; node: { id: string; label: string; gameType: GameNodeType; importance: GameNodeImportance; description?: string } }
-  | { type: 'UPDATE_NODE'; nodeId: string; updates: { label?: string; gameType?: GameNodeType; importance?: GameNodeImportance; description?: string } }
+  | { type: 'ADD_NODE'; node: { id: string; label: string; gameType: GameNodeType; importance: GameNodeImportance; description: string | null } }
+  | { type: 'UPDATE_NODE'; nodeId: string; replacement: { label: string; gameType: GameNodeType; importance: GameNodeImportance; description: string | null } }
   | { type: 'REMOVE_NODE'; nodeId: string }
   | { type: 'ADD_EDGE'; edge: { id: string; source: string; target: string; relation: GameEdgeType } }
   | { type: 'UPDATE_EDGE'; edgeId: string; relation: GameEdgeType }
@@ -45,13 +45,13 @@ export function applyDesignChangeSet(
     if (operation.type === 'ADD_NODE') {
       const { node } = operation;
       if (!node.id || nodeMap.has(node.id) || !node.label.trim() || !nodeTypes.has(node.gameType) || !importanceTypes.has(node.importance)) return invalid('Invalid ADD_NODE operation.');
-      const nextNode: GameNode = { id: node.id, type: 'gameNode', position: { x: 200 + nextNodes.length * 30, y: 200 + nextNodes.length * 30 }, data: { ...node } };
+      const nextNode: GameNode = { id: node.id, type: 'gameNode', position: { x: 200 + nextNodes.length * 30, y: 200 + nextNodes.length * 30 }, data: { ...node, description: node.description ?? undefined } };
       nextNodes.push(nextNode); nodeMap.set(node.id, nextNode);
     } else if (operation.type === 'UPDATE_NODE') {
       const node = nodeMap.get(operation.nodeId);
-      const updates = operation.updates;
-      if (!node || (updates.label !== undefined && !updates.label.trim()) || (updates.gameType && !nodeTypes.has(updates.gameType)) || (updates.importance && !importanceTypes.has(updates.importance))) return invalid('Invalid UPDATE_NODE operation.');
-      node.data = { ...node.data, ...updates };
+      const replacement = operation.replacement;
+      if (!node || !replacement.label.trim() || !nodeTypes.has(replacement.gameType) || !importanceTypes.has(replacement.importance)) return invalid('Invalid UPDATE_NODE operation.');
+      node.data = { ...node.data, ...replacement, description: replacement.description ?? undefined };
     } else if (operation.type === 'REMOVE_NODE') {
       if (!nodeMap.has(operation.nodeId)) return invalid('REMOVE_NODE references a nonexistent node.');
       nodeMap.delete(operation.nodeId);
