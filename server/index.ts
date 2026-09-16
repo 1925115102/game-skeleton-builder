@@ -16,6 +16,15 @@ import {
   AIReviewSchema,
 } from './aiReviewSchema';
 
+import {
+  GuidedDesignProposalSchema,
+  GuidedDesignRequestSchema,
+} from './guidedDesignSchema';
+
+import {
+  buildGuidedDesignPrompt,
+} from './guidedDesignPrompt';
+
 dotenv.config();
 
 const app = express();
@@ -135,6 +144,54 @@ app.post('/api/review', async (req, res) => {
       type:
         error?.type ??
         null,
+    });
+  }
+});
+
+
+// ==========================================
+// Guided Design Proposal
+// ==========================================
+
+app.post('/api/guided-design', async (req, res) => {
+  const parsedRequest =
+    GuidedDesignRequestSchema.safeParse(req.body);
+
+  if (!parsedRequest.success) {
+    return res.status(400).json({
+      error: 'Invalid guided design request.',
+      details: parsedRequest.error.issues,
+    });
+  }
+
+  try {
+    const response =
+      await client.responses.parse({
+        model: 'gpt-5.6-luna',
+        input: buildGuidedDesignPrompt(parsedRequest.data),
+        text: {
+          format: zodTextFormat(
+            GuidedDesignProposalSchema,
+            'guided_design_proposal'
+          ),
+        },
+      });
+
+    const proposal = response.output_parsed;
+
+    if (!proposal) {
+      throw new Error(
+        'AI returned no parsed guided design proposal.'
+      );
+    }
+
+    return res.json({ result: proposal });
+  } catch (error: any) {
+    console.error('Guided Design failed:', error);
+
+    return res.status(500).json({
+      error: 'Guided Design request failed.',
+      message: error?.message ?? 'Unknown error',
     });
   }
 });

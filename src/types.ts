@@ -88,9 +88,10 @@ export interface GameState {
 
   name: string;
 
+  brief?: string;
+
   nodes: GameNode[];
 
   edges: GameEdge[];
 
 }
-

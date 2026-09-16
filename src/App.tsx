@@ -10,6 +10,7 @@ import type {
 } from './analyzer/issueFixMap';
 
 import {
+  getProjectBrief,
   isValidGameState,
 } from './gameStateValidation';
 
@@ -70,6 +71,18 @@ import type {
 } from './ai/aiTypes';
 
 import AILoadingPanel from './AILoadingPanel';
+import ProjectPanel from './ProjectPanel';
+import GuidedDesignPanel from './GuidedDesignPanel';
+
+import {
+  canApplyProposedRelationship,
+  findDuplicateNode,
+} from './guidedDesign/proposalApplication';
+
+import type {
+  GuidedDesignProposal,
+  ProposedDesignNode,
+} from './guidedDesign/guidedDesignTypes';
 
 // ======================================================
 // Custom Node Components
@@ -259,6 +272,39 @@ function App() {
   const [aiReviewError, setAIReviewError] =
     useState<string | null>(null);
 
+  const [projectName, setProjectName] =
+    useState('Untitled Game');
+
+  const [projectBrief, setProjectBrief] =
+    useState('');
+
+  const [showProjectPanel, setShowProjectPanel] =
+    useState(false);
+
+  const [showGuidedDesign, setShowGuidedDesign] =
+    useState(false);
+
+  const [guidedDesignProposal, setGuidedDesignProposal] =
+    useState<GuidedDesignProposal | null>(null);
+
+  const [isGuidedDesignLoading, setIsGuidedDesignLoading] =
+    useState(false);
+
+  const [guidedDesignError, setGuidedDesignError] =
+    useState<string | null>(null);
+
+  const [acceptedProposalNodeIds, setAcceptedProposalNodeIds] =
+    useState<Record<string, string>>({});
+
+  const [acceptedProposalRelationshipIds, setAcceptedProposalRelationshipIds] =
+    useState<string[]>([]);
+
+  const [rejectedProposalNodeIds, setRejectedProposalNodeIds] =
+    useState<string[]>([]);
+
+  const [rejectedProposalRelationshipIds, setRejectedProposalRelationshipIds] =
+    useState<string[]>([]);
+
 
   // ====================================================
   // GameState
@@ -267,11 +313,12 @@ function App() {
   const getGameState = useCallback((): GameState => {
     return {
       version: '0.1',
-      name: 'Untitled Game',
+      name: projectName,
+      brief: projectBrief,
       nodes,
       edges,
     };
-  }, [nodes, edges]);
+  }, [projectName, projectBrief, nodes, edges]);
 
   const importInputRef =
     useRef<HTMLInputElement | null>(null);
@@ -374,6 +421,8 @@ function App() {
 
         setNodes(parsed.nodes);
         setEdges(parsed.edges);
+        setProjectName(parsed.name);
+        setProjectBrief(getProjectBrief(parsed));
 
 
         // ---------------------------------------------
@@ -1122,6 +1171,288 @@ function App() {
 
 
   // ====================================================
+  // Guided Design
+  // ====================================================
+
+  const requestGuidedDesign = useCallback(
+    async (latestAnswer = '') => {
+      try {
+        setShowGuidedDesign(true);
+        setIsGuidedDesignLoading(true);
+        setGuidedDesignError(null);
+        setGuidedDesignProposal(null);
+        setAIReview(null);
+
+        const response = await fetch(
+          'http://localhost:3001/api/guided-design',
+          {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+              project: {
+                name: projectName,
+                brief: projectBrief,
+              },
+              skeleton: serializeSkeleton(nodes, edges),
+              latestAnswer: latestAnswer || undefined,
+            }),
+          }
+        );
+
+        if (!response.ok) {
+          throw new Error(
+            `Server returned ${response.status}.`
+          );
+        }
+
+        const data = await response.json() as {
+          result: GuidedDesignProposal;
+        };
+
+        setGuidedDesignProposal(data.result);
+        setAcceptedProposalNodeIds({});
+        setAcceptedProposalRelationshipIds([]);
+        setRejectedProposalNodeIds([]);
+        setRejectedProposalRelationshipIds([]);
+      } catch (error) {
+        console.error('Guided Design Error:', error);
+        setGuidedDesignError(
+          'Guided Design failed. Check that the AI server is running and try again.'
+        );
+      } finally {
+        setIsGuidedDesignLoading(false);
+      }
+    },
+    [projectName, projectBrief, nodes, edges]
+  );
+
+  const createNodeFromProposal = useCallback(
+    (
+      proposal: ProposedDesignNode,
+      id: string,
+      index = nodes.length
+    ): GameNode => ({
+      id,
+      type: 'gameNode',
+      position: {
+        x: 200 + index * 30,
+        y: 200 + index * 30,
+      },
+      data: {
+        label: proposal.label,
+        gameType: proposal.gameType,
+        importance: proposal.importance,
+        description: proposal.description,
+      },
+    }),
+    [nodes.length]
+  );
+
+  const acceptProposedNode = useCallback(
+    (proposalId: string) => {
+      const proposal = guidedDesignProposal?.proposedNodes.find(
+        (node) => node.proposalId === proposalId
+      );
+
+      if (!proposal || acceptedProposalNodeIds[proposalId]) {
+        return;
+      }
+
+      const duplicate = findDuplicateNode(nodes, proposal);
+      const nodeId = duplicate?.id ?? crypto.randomUUID();
+
+      if (!duplicate) {
+        setNodes((currentNodes) => [
+          ...currentNodes,
+          createNodeFromProposal(proposal, nodeId),
+        ]);
+      }
+
+      setAcceptedProposalNodeIds((current) => ({
+        ...current,
+        [proposalId]: nodeId,
+      }));
+    },
+    [
+      acceptedProposalNodeIds,
+      createNodeFromProposal,
+      guidedDesignProposal,
+      nodes,
+      setNodes,
+    ]
+  );
+
+  const rejectProposedNode = useCallback((proposalId: string) => {
+    setRejectedProposalNodeIds((current) => [
+      ...current.filter((id) => id !== proposalId),
+      proposalId,
+    ]);
+  }, []);
+
+  const acceptProposedRelationship = useCallback(
+    (proposalId: string) => {
+      const proposal =
+        guidedDesignProposal?.proposedRelationships.find(
+          (relationship) => relationship.proposalId === proposalId
+        );
+
+      if (!proposal || acceptedProposalRelationshipIds.includes(proposalId)) {
+        return;
+      }
+
+      const result = canApplyProposedRelationship(
+        proposal,
+        nodes,
+        edges,
+        acceptedProposalNodeIds
+      );
+
+      if (!result.canApply || !result.sourceId || !result.targetId) {
+        return;
+      }
+
+      const newEdge: GameEdge = {
+        id: crypto.randomUUID(),
+        source: result.sourceId,
+        target: result.targetId,
+        label: proposal.relation.replaceAll('_', ' ').toUpperCase(),
+        data: { relation: proposal.relation },
+      };
+
+      setEdges((currentEdges) => {
+        const duplicate = currentEdges.some(
+          (edge) =>
+            edge.source === newEdge.source &&
+            edge.target === newEdge.target &&
+            edge.data?.relation === proposal.relation
+        );
+
+        return duplicate ? currentEdges : [...currentEdges, newEdge];
+      });
+
+      setAcceptedProposalRelationshipIds((current) => [
+        ...current,
+        proposalId,
+      ]);
+    },
+    [
+      acceptedProposalNodeIds,
+      acceptedProposalRelationshipIds,
+      edges,
+      guidedDesignProposal,
+      nodes,
+      setEdges,
+    ]
+  );
+
+  const rejectProposedRelationship = useCallback((proposalId: string) => {
+    setRejectedProposalRelationshipIds((current) => [
+      ...current.filter((id) => id !== proposalId),
+      proposalId,
+    ]);
+  }, []);
+
+  const acceptAllAvailableProposals = useCallback(() => {
+    if (!guidedDesignProposal) {
+      return;
+    }
+
+    const nextNodes = [...nodes];
+    const nextNodeIds = { ...acceptedProposalNodeIds };
+
+    for (const proposal of guidedDesignProposal.proposedNodes) {
+      if (
+        rejectedProposalNodeIds.includes(proposal.proposalId) ||
+        nextNodeIds[proposal.proposalId]
+      ) {
+        continue;
+      }
+
+      const duplicate = findDuplicateNode(nextNodes, proposal);
+      const nodeId = duplicate?.id ?? crypto.randomUUID();
+
+      if (!duplicate) {
+        nextNodes.push(
+          createNodeFromProposal(
+            proposal,
+            nodeId,
+            nextNodes.length
+          )
+        );
+      }
+
+      nextNodeIds[proposal.proposalId] = nodeId;
+    }
+
+    const newNodes = nextNodes.slice(nodes.length);
+    if (newNodes.length > 0) {
+      setNodes((currentNodes) => [
+        ...currentNodes,
+        ...newNodes,
+      ]);
+    }
+
+    const nextEdges = [...edges];
+    const acceptedRelationshipIds = [
+      ...acceptedProposalRelationshipIds,
+    ];
+
+    for (const proposal of guidedDesignProposal.proposedRelationships) {
+      if (
+        rejectedProposalRelationshipIds.includes(proposal.proposalId) ||
+        acceptedRelationshipIds.includes(proposal.proposalId)
+      ) {
+        continue;
+      }
+
+      const result = canApplyProposedRelationship(
+        proposal,
+        nextNodes,
+        nextEdges,
+        nextNodeIds
+      );
+
+      if (!result.canApply || !result.sourceId || !result.targetId) {
+        continue;
+      }
+
+      nextEdges.push({
+        id: crypto.randomUUID(),
+        source: result.sourceId,
+        target: result.targetId,
+        label: proposal.relation.replaceAll('_', ' ').toUpperCase(),
+        data: { relation: proposal.relation },
+      });
+      acceptedRelationshipIds.push(proposal.proposalId);
+    }
+
+    const newEdges = nextEdges.slice(edges.length);
+    if (newEdges.length > 0) {
+      setEdges((currentEdges) => [
+        ...currentEdges,
+        ...newEdges,
+      ]);
+    }
+
+    setAcceptedProposalNodeIds(nextNodeIds);
+    setAcceptedProposalRelationshipIds(acceptedRelationshipIds);
+  }, [
+    acceptedProposalNodeIds,
+    acceptedProposalRelationshipIds,
+    createNodeFromProposal,
+    edges,
+    guidedDesignProposal,
+    nodes,
+    rejectedProposalNodeIds,
+    rejectedProposalRelationshipIds,
+    setEdges,
+    setNodes,
+  ]);
+
+
+  // ====================================================
   // Render
   // ====================================================
 
@@ -1232,6 +1563,16 @@ function App() {
               </button>
 
               <button
+                onClick={() => {
+                  setShowProjectPanel(true);
+                  setShowGuidedDesign(false);
+                }}
+                style={toolbarButtonStyle}
+              >
+                Project
+              </button>
+
+              <button
                 onClick={runAnalysis}
                 style={toolbarButtonStyle}
               >
@@ -1246,6 +1587,16 @@ function App() {
                 {isAIReviewLoading
                   ? 'Reviewing...'
                   : 'AI Review'}
+              </button>
+
+              <button
+                onClick={() => requestGuidedDesign()}
+                style={toolbarButtonStyle}
+                disabled={isGuidedDesignLoading}
+              >
+                {isGuidedDesignLoading
+                  ? 'Developing...'
+                  : 'Guided Design'}
               </button>
 
               <input
@@ -1299,6 +1650,45 @@ function App() {
               }))
             );
           }}
+        />
+
+      ) : showGuidedDesign ? (
+
+        <GuidedDesignPanel
+          proposal={guidedDesignProposal}
+          nodes={nodes}
+          edges={edges}
+          acceptedNodeIds={acceptedProposalNodeIds}
+          acceptedRelationshipIds={
+            acceptedProposalRelationshipIds
+          }
+          rejectedNodeIds={rejectedProposalNodeIds}
+          rejectedRelationshipIds={
+            rejectedProposalRelationshipIds
+          }
+          isLoading={isGuidedDesignLoading}
+          error={guidedDesignError}
+          onAcceptNode={acceptProposedNode}
+          onRejectNode={rejectProposedNode}
+          onAcceptRelationship={
+            acceptProposedRelationship
+          }
+          onRejectRelationship={
+            rejectProposedRelationship
+          }
+          onAcceptAll={acceptAllAvailableProposals}
+          onRequestFollowUp={requestGuidedDesign}
+          onClose={() => setShowGuidedDesign(false)}
+        />
+
+      ) : showProjectPanel ? (
+
+        <ProjectPanel
+          name={projectName}
+          brief={projectBrief}
+          onNameChange={setProjectName}
+          onBriefChange={setProjectBrief}
+          onClose={() => setShowProjectPanel(false)}
         />
 
       ) : aiReviewError ? (

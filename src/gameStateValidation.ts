@@ -49,3 +49,10 @@ export function isValidGameState(
 
   return true;
 }
+
+
+export function getProjectBrief(
+  state: GameState
+): string {
+  return state.brief ?? '';
+}
