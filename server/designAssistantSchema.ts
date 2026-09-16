@@ -37,5 +37,17 @@ export const DesignChangeSetSchema = z.object({
   title: z.string(),
   rationale: z.string(),
   expectedEffect: z.string(),
-  operations: z.array(changeOperation).min(1).max(8),
+  operations: z.array(changeOperation).min(1).max(12),
+});
+
+export const AskDesignRequestSchema = projectAndSkeleton.extend({
+  instruction: z.string().trim().min(1).max(3000),
+  clarificationAnswer: z.string().trim().max(3000).nullable(),
+});
+
+export const AskDesignResponseSchema = z.object({
+  interpretation: z.string(),
+  reasoning: z.string().nullable(),
+  clarificationQuestion: z.string().nullable(),
+  changeSet: DesignChangeSetSchema.nullable(),
 });

@@ -3,6 +3,8 @@ import type { DesignChangeSet } from './ai/changeSet';
 import { presentChangeSet } from './ai/changeSetPresentation';
 import { splitIssuesByLifecycle } from './ai/issueLifecycle';
 import type { GameEdge, GameNode } from './types';
+import type { AskDesignExchange, AskDesignResponse } from './ai/askDesignTypes';
+import { useState } from 'react';
 import './NodeInspector.css';
 
 interface Props {
@@ -23,11 +25,17 @@ interface Props {
   onReject: () => void;
   onBack: () => void;
   onClose: () => void;
+  askResponse: AskDesignResponse | null;
+  askHistory: AskDesignExchange[];
+  onAsk: (message: string) => void;
+  onDismissAsk: () => void;
 }
 
 export default function DesignAssistantPanel(props: Props) {
-  const { analysis, changeSet, selectedIssue, suggestedIssueIds, appliedIssueIds, nodes, edges, loading, applying, analysisStale, error, onRequestChange, onAnalyze, onApprove, onReject, onBack, onClose } = props;
-  const showingSuggestion = selectedIssue && (changeSet || loading);
+  const { analysis, changeSet, selectedIssue, suggestedIssueIds, appliedIssueIds, nodes, edges, loading, applying, analysisStale, error, onRequestChange, onAnalyze, onApprove, onReject, onBack, onClose, askResponse, askHistory, onAsk, onDismissAsk } = props;
+  const [askInput, setAskInput] = useState('');
+  const showingSuggestion = Boolean(changeSet && (selectedIssue || askResponse));
+  const showingAskClarification = Boolean(askResponse?.clarificationQuestion && !changeSet);
   const presentedChanges = changeSet ? presentChangeSet(changeSet, nodes, edges) : [];
   const issueGroups = analysis ? splitIssuesByLifecycle(analysis.issues, appliedIssueIds) : { active: [], resolved: [] };
   const selectedIssueApplied = Boolean(selectedIssue && appliedIssueIds.includes(selectedIssue.id));
@@ -36,9 +44,17 @@ export default function DesignAssistantPanel(props: Props) {
     <h2>AI Design Assistant</h2>
     <p style={introStyle}>AI analyzes and proposes. You approve every graph change.</p>
     {error && <p role="alert" style={errorStyle}>{error}</p>}
+    {!showingSuggestion && <section style={askStyle}>
+      <h3 style={{ marginTop: 0 }}>Ask AI</h3>
+      <p style={detailStyle}>Describe the change you want to make. AI will propose a reviewable design change.</p>
+      {showingAskClarification && <p style={clarificationStyle}>{askResponse?.clarificationQuestion}</p>}
+      <textarea value={askInput} rows={3} placeholder={showingAskClarification ? 'Answer the clarification…' : 'For example: Add five elemental materials under Resources.'} onChange={(event) => setAskInput(event.target.value)} />
+      <button style={primaryButtonStyle} disabled={loading || !askInput.trim()} onClick={() => { onAsk(askInput.trim()); setAskInput(''); }}>{loading ? 'Thinking…' : showingAskClarification ? 'Answer & Continue' : 'Ask AI'}</button>
+      {askHistory.length > 0 && <details><summary style={historySummaryStyle}>Recent Ask AI exchanges</summary>{askHistory.slice().reverse().map((exchange, index) => <div key={`${exchange.instruction}-${index}`} style={historyStyle}><strong>You:</strong> {exchange.instruction}<br /><strong>AI:</strong> {exchange.interpretation}{exchange.clarificationQuestion && <><br /><em>{exchange.clarificationQuestion}</em></>}</div>)}</details>}
+    </section>}
     {showingSuggestion ? <>
-      <button style={backButtonStyle} onClick={onBack} disabled={applying}>← Back to analysis</button>
-      <p style={eyebrowStyle}>Suggestion for: {selectedIssue.title}</p>
+      <button style={backButtonStyle} onClick={selectedIssue ? onBack : onDismissAsk} disabled={applying}>← {selectedIssue ? 'Back to analysis' : 'Back to Ask AI'}</button>
+      <p style={eyebrowStyle}>{selectedIssue ? `Suggestion for: ${selectedIssue.title}` : `Ask AI: ${askResponse?.interpretation}`}</p>
       {loading && <p>Preparing a focused suggestion…</p>}
       {changeSet && <>
         <h3>{changeSet.title}</h3>
@@ -54,7 +70,7 @@ export default function DesignAssistantPanel(props: Props) {
           <button style={buttonStyle} onClick={onReject} disabled={applying}>Reject</button>
         </>}
       </>}
-      {issueGroups.active.filter((issue) => issue.id !== selectedIssue.id).length > 0 && <section style={sectionStyle}>
+      {selectedIssue && issueGroups.active.filter((issue) => issue.id !== selectedIssue.id).length > 0 && <section style={sectionStyle}>
         <h4 style={headingStyle}>Other issues</h4>
         {issueGroups.active.filter((issue) => issue.id !== selectedIssue.id).map((issue) => <button key={issue.id} style={issueSwitchStyle} onClick={() => onRequestChange(issue)} disabled={applying}>{issue.title}</button>)}
       </section>}
@@ -93,3 +109,7 @@ const errorStyle = { padding: '8px', borderRadius: '6px', background: '#fef2f2',
 const issueSwitchStyle = { display: 'block', width: '100%', padding: '7px', marginBottom: '5px', textAlign: 'left' as const, border: '1px solid #dbe3ee', borderRadius: '5px', background: '#fff', cursor: 'pointer', fontSize: '12px' };
 const resolvedCardStyle = { ...cardStyle, borderColor: '#bbf7d0', background: '#f0fdf4' };
 const appliedNoticeStyle = { padding: '8px', borderRadius: '6px', background: '#f0fdf4', color: '#166534', fontSize: '13px' };
+const askStyle = { margin: '14px 0', padding: '12px', border: '1px solid #c7d2fe', borderRadius: '8px', background: '#f8faff' };
+const clarificationStyle = { padding: '8px', borderRadius: '6px', background: '#fff7ed', color: '#9a3412', fontSize: '13px' };
+const historySummaryStyle = { marginTop: '8px', cursor: 'pointer', fontSize: '12px', color: '#475569' };
+const historyStyle = { marginTop: '7px', fontSize: '12px', lineHeight: 1.4, color: '#475569' };

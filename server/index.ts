@@ -39,11 +39,14 @@ import {
   DesignAnalysisSchema,
   DesignChangeRequestSchema,
   DesignChangeSetSchema,
+  AskDesignRequestSchema,
+  AskDesignResponseSchema,
 } from './designAssistantSchema';
 
 import {
   analysisPrompt,
   changePrompt,
+  askDesignPrompt,
 } from './designAssistantPrompt';
 import { validateExistingEdgeReferences } from './designAssistantValidation';
 import { GameReportRequestSchema, GameReportSchema } from './gameReportSchema';
@@ -283,6 +286,30 @@ app.post('/api/design-assistant/change-set', async (req, res) => {
   } catch (error) {
     logServerError('Design Assistant change set failed', error);
     return res.status(500).json({ error: 'Design change request failed.' });
+  }
+});
+
+app.post('/api/design-assistant/ask', async (req, res) => {
+  const parsed = AskDesignRequestSchema.safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: 'Invalid Ask AI request.' });
+  try {
+    const response = await client.responses.parse({
+      model: 'gpt-5.6-luna',
+      input: askDesignPrompt(parsed.data),
+      text: { format: zodTextFormat(AskDesignResponseSchema, 'ask_design_response') },
+    });
+    if (!response.output_parsed) throw new Error('AI returned no parsed Ask AI response.');
+    const result = response.output_parsed;
+    if (result.changeSet && result.clarificationQuestion) throw new Error('AI returned both a change set and a clarification.');
+    if (!result.changeSet && !result.clarificationQuestion) throw new Error('AI returned neither a change set nor a clarification.');
+    if (result.changeSet) {
+      const referenceError = validateExistingEdgeReferences(parsed.data, result.changeSet);
+      if (referenceError) throw new Error(referenceError);
+    }
+    return res.json({ result });
+  } catch (error) {
+    logServerError('Ask AI request failed', error);
+    return res.status(500).json({ error: 'Ask AI request failed.' });
   }
 });
 

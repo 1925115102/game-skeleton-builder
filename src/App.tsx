@@ -58,7 +58,7 @@ import type {
   ProposedDesignNode,
 } from './guidedDesign/guidedDesignTypes';
 import DesignAssistantPanel from './DesignAssistantPanel';
-import { applyDesignChangeSet, type DesignChangeSet } from './ai/changeSet';
+import { applyDesignChangeSet, validateCanonicalGraph, type DesignChangeSet } from './ai/changeSet';
 import { highlightForChangeSet, highlightForIssue, type AssistantHighlight } from './ai/designAssistantHighlights';
 import { createProjectMetadata, getProjectExportFilename, migrateProjectDocument, type ProjectMetadata } from './projectState';
 import { getAutoLayoutedNodes } from './graph/autoLayout';
@@ -70,7 +70,9 @@ import { selectedNodeNeighborhood } from './graph/neighborhood';
 import { HierarchyUiContext } from './HierarchyUiContext';
 import GameReportPanel from './GameReportPanel';
 import type { GameReport } from './ai/gameReportTypes';
-import { reportShouldBecomeStale } from './ai/reportStaleness';
+import type { AskDesignExchange, AskDesignResponse } from './ai/askDesignTypes';
+import { createContextualNode } from './graph/contextualCreation';
+import { reverseCanonicalEdge } from './graph/edgeReversal';
 
 // ======================================================
 // Custom Node Components
@@ -277,14 +279,21 @@ function App() {
   const [appliedSuggestionIssueIds, setAppliedSuggestionIssueIds] = useState<string[]>([]);
   const [selectedDesignIssue, setSelectedDesignIssue] = useState<AIIssue | null>(null);
   const [analysisStale, setAnalysisStale] = useState(false);
+  const [analysisSemanticSignature, setAnalysisSemanticSignature] = useState<string | null>(null);
   const [isApplyingChangeSet, setIsApplyingChangeSet] = useState(false);
   const [assistantHighlight, setAssistantHighlight] = useState<AssistantHighlight>({ nodeIds: [], edgeIds: [] });
+  const [askDesignResponse, setAskDesignResponse] = useState<AskDesignResponse | null>(null);
+  const [askDesignHistory, setAskDesignHistory] = useState<AskDesignExchange[]>([]);
+  const [activeAskInstruction, setActiveAskInstruction] = useState<string | null>(null);
+  const [lastManualRelationship, setLastManualRelationship] = useState<GameEdgeType>('leads_to');
+  const [edgeInspectorError, setEdgeInspectorError] = useState<string | null>(null);
   const [collapsedHierarchyParentIds, setCollapsedHierarchyParentIds] = useState<string[]>([]);
   const [showGameReport, setShowGameReport] = useState(false);
   const [gameReport, setGameReport] = useState<GameReport | null>(null);
   const [gameReportLoading, setGameReportLoading] = useState(false);
   const [gameReportError, setGameReportError] = useState<string | null>(null);
   const [gameReportStale, setGameReportStale] = useState(false);
+  const [gameReportSemanticSignature, setGameReportSemanticSignature] = useState<string | null>(null);
   const nodesRef = useRef(nodes);
   const edgesRef = useRef(edges);
   const applyingRef = useRef(false);
@@ -327,14 +336,8 @@ function App() {
     nodes: nodes.map(({ id, data }) => ({ id, label: data.label, type: data.gameType, importance: data.importance, description: data.description })),
     edges: edges.map((edge) => ({ id: edge.id, source: edge.source, target: edge.target, relation: edge.data?.relation })),
   }), [projectName, projectBrief, nodes, edges]);
-  const previousReportSemanticSignature = useRef(reportSemanticSignature);
-  useEffect(() => {
-    if (previousReportSemanticSignature.current !== reportSemanticSignature) {
-      const previousSignature = previousReportSemanticSignature.current;
-      previousReportSemanticSignature.current = reportSemanticSignature;
-      if (reportShouldBecomeStale(previousSignature, reportSemanticSignature, Boolean(gameReport))) setGameReportStale(true);
-    }
-  }, [reportSemanticSignature, gameReport]);
+  const effectiveAnalysisStale = analysisStale || Boolean(designAssistantAnalysis && analysisSemanticSignature !== reportSemanticSignature);
+  const effectiveGameReportStale = gameReportStale || Boolean(gameReport && gameReportSemanticSignature !== reportSemanticSignature);
 
   useEffect(() => {
     const nodeIds = new Set(assistantHighlight.nodeIds);
@@ -569,6 +572,7 @@ function App() {
         { ...newEdge, ...edgePresentation(newEdge, currentEdges) },
         currentEdges
       ));
+      setLastManualRelationship('leads_to');
 
     },
     [setEdges]
@@ -671,37 +675,16 @@ function App() {
 
 
   const addNode = useCallback(() => {
-
-    const id =
-      crypto.randomUUID();
-
-
-    const newNode: GameNode = {
-      id,
-
-      type: 'gameNode',
-
-      position: {
-        x: 200 + nodes.length * 30,
-        y: 200 + nodes.length * 30,
-      },
-
-      data: {
-        label: 'New Activity',
-
-        gameType: 'activity',
-
-        importance: 'supporting',
-
-        description: '',
-      },
-    };
-
-
-    setNodes((currentNodes) => [
-      ...currentNodes,
-      newNode,
-    ]);
+    const id = crypto.randomUUID();
+    const { node: newNode, edge: contextualEdge } = createContextualNode(nodes, selectedNodeId, id, lastManualRelationship);
+    setNodes((currentNodes) => [...currentNodes, newNode]);
+    if (contextualEdge) {
+      setEdges((currentEdges) => [...currentEdges, {
+        ...contextualEdge,
+        label: relationshipLabel(lastManualRelationship),
+        ...edgePresentation(contextualEdge, currentEdges),
+      }]);
+    }
 
 
     // Select the new node immediately
@@ -709,7 +692,7 @@ function App() {
 
     setSelectedEdgeId(null);
 
-  }, [nodes.length, setNodes]);
+  }, [nodes, selectedNodeId, lastManualRelationship, setNodes, setEdges]);
 
 
   // ====================================================
@@ -722,31 +705,33 @@ function App() {
       relation: GameEdgeType
     ) => {
 
-      setEdges((currentEdges) =>
-        currentEdges.map((edge) => {
-
-          if (edge.id !== edgeId) {
-            return edge;
-          }
-
-
-          return {
-            ...edge,
-
-            label: relationshipLabel(relation),
-
-            data: {
-              ...edge.data,
-              relation,
-            } satisfies GameEdgeData,
-          };
-
-        })
-      );
+      const nextEdges = edges.map((edge) => edge.id !== edgeId ? edge : {
+        ...edge,
+        label: relationshipLabel(relation),
+        data: { ...edge.data, relation } satisfies GameEdgeData,
+      });
+      const validationError = validateCanonicalGraph(nodes, nextEdges);
+      if (validationError) {
+        setEdgeInspectorError(`Could not change this relationship: ${validationError}`);
+        return;
+      }
+      setEdges(nextEdges);
+      setEdgeInspectorError(null);
+      setLastManualRelationship(relation);
 
     },
-    [setEdges]
+    [nodes, edges, setEdges]
   );
+
+  const reverseEdge = useCallback((edgeId: string) => {
+    const result = reverseCanonicalEdge(nodes, edges, edgeId);
+    if (!result.success) {
+      setEdgeInspectorError(`Could not reverse this connection: ${result.error}`);
+      return;
+    }
+    setEdges(result.edges);
+    setEdgeInspectorError(null);
+  }, [nodes, edges, setEdges]);
 
 
   const deleteEdge = useCallback(
@@ -1052,6 +1037,8 @@ function App() {
       setDesignAssistantLoading(true);
       setDesignAssistantError(null);
       setDesignChangeSet(null);
+      setAskDesignResponse(null);
+      setActiveAskInstruction(null);
       const response = await fetch('http://localhost:3001/api/design-assistant/analyze', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -1065,13 +1052,14 @@ function App() {
       setAppliedSuggestionIssueIds([]);
       setAssistantHighlight({ nodeIds: [], edgeIds: [] });
       setAnalysisStale(false);
+      setAnalysisSemanticSignature(reportSemanticSignature);
     } catch (error) {
       console.error('Design Assistant analysis error:', error);
       setDesignAssistantError('Design analysis failed. Check that the AI server is running and try again.');
     } finally {
       setDesignAssistantLoading(false);
     }
-  }, [projectName, projectBrief, nodes, edges]);
+  }, [projectName, projectBrief, nodes, edges, reportSemanticSignature]);
 
   const requestGameReport = useCallback(async () => {
     try {
@@ -1087,13 +1075,14 @@ function App() {
       const data = await response.json() as { result: GameReport };
       setGameReport(data.result);
       setGameReportStale(false);
+      setGameReportSemanticSignature(reportSemanticSignature);
     } catch (error) {
       console.error('Game Report generation error:', error);
       setGameReportError('Game Report generation failed. Check that the AI server is running and try again.');
     } finally {
       setGameReportLoading(false);
     }
-  }, [projectName, projectBrief, nodes, edges]);
+  }, [projectName, projectBrief, nodes, edges, reportSemanticSignature]);
 
   const requestDesignChangeSet = useCallback(async (issue: AIIssue) => {
     const cached = suggestionsByIssue[issue.id];
@@ -1114,6 +1103,8 @@ function App() {
       setDesignAssistantError(null);
       setSelectedDesignIssue(issue);
       setDesignChangeSet(null);
+      setAskDesignResponse(null);
+      setActiveAskInstruction(null);
       setAssistantHighlight(highlightForIssue(issue));
       const response = await fetch('http://localhost:3001/api/design-assistant/change-set', {
         method: 'POST',
@@ -1135,6 +1126,42 @@ function App() {
     }
   }, [projectName, projectBrief, nodes, edges, suggestionsByIssue, appliedSuggestionIssueIds]);
 
+  const requestAskDesign = useCallback(async (message: string) => {
+    const clarificationAnswer = askDesignResponse?.clarificationQuestion ? message : null;
+    const instruction = clarificationAnswer ? activeAskInstruction ?? message : message;
+    try {
+      setDesignAssistantLoading(true);
+      setDesignAssistantError(null);
+      setSelectedDesignIssue(null);
+      setDesignChangeSet(null);
+      setAssistantHighlight({ nodeIds: [], edgeIds: [] });
+      const response = await fetch('http://localhost:3001/api/design-assistant/ask', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          project: { name: projectName, brief: projectBrief },
+          skeleton: serializeSkeleton(nodes, edges),
+          instruction,
+          clarificationAnswer,
+        }),
+      });
+      if (!response.ok) throw new Error(`Server returned ${response.status}.`);
+      const data = await response.json() as { result: AskDesignResponse };
+      setAskDesignResponse(data.result);
+      setAskDesignHistory((current) => [...current.slice(-5), { instruction: clarificationAnswer ? `${instruction}\nClarification: ${message}` : message, interpretation: data.result.interpretation, clarificationQuestion: data.result.clarificationQuestion }]);
+      setActiveAskInstruction(data.result.clarificationQuestion ? instruction : null);
+      if (data.result.changeSet) {
+        setDesignChangeSet(data.result.changeSet);
+        setAssistantHighlight(highlightForChangeSet(data.result.changeSet, nodesRef.current, edgesRef.current));
+      }
+    } catch (error) {
+      console.error('Ask AI error:', error);
+      setDesignAssistantError('Ask AI failed. Check that the AI server is running and try again.');
+    } finally {
+      setDesignAssistantLoading(false);
+    }
+  }, [projectName, projectBrief, nodes, edges, askDesignResponse, activeAskInstruction]);
+
   const approveDesignChangeSet = useCallback(() => {
     if (!designChangeSet || applyingRef.current) return;
     applyingRef.current = true;
@@ -1155,6 +1182,8 @@ function App() {
         setNodes(result.nodes);
         setEdges(result.edges);
         setDesignChangeSet(null);
+        setAskDesignResponse(null);
+        setActiveAskInstruction(null);
         if (selectedDesignIssue) setAppliedSuggestionIssueIds((current) => markIssueApplied(current, selectedDesignIssue.id));
         setAssistantHighlight({ nodeIds: [], edgeIds: [] });
         setAnalysisStale(true);
@@ -1210,16 +1239,19 @@ function App() {
           onNodeClick={(_, node) => {
             setSelectedNodeId(node.id);
             setSelectedEdgeId(null);
+            setEdgeInspectorError(null);
           }}
 
           onEdgeClick={(_, edge) => {
             setSelectedEdgeId(edge.id);
             setSelectedNodeId(null);
+            setEdgeInspectorError(null);
           }}
 
           onPaneClick={() => {
             setSelectedNodeId(null);
             setSelectedEdgeId(null);
+            setEdgeInspectorError(null);
           }}
 
           onInit={(instance) =>
@@ -1343,7 +1375,7 @@ function App() {
         <GameReportPanel
           report={gameReport}
           loading={gameReportLoading}
-          stale={gameReportStale}
+          stale={effectiveGameReportStale}
           error={gameReportError}
           onGenerate={requestGameReport}
           onClose={() => setShowGameReport(false)}
@@ -1361,13 +1393,15 @@ function App() {
           edges={edges}
           loading={designAssistantLoading}
           applying={isApplyingChangeSet}
-          analysisStale={analysisStale}
+          analysisStale={effectiveAnalysisStale}
           error={designAssistantError}
           onRequestChange={requestDesignChangeSet}
           onAnalyze={requestDesignAnalysis}
           onApprove={approveDesignChangeSet}
           onReject={() => {
             setDesignChangeSet(null);
+            setAskDesignResponse(null);
+            setActiveAskInstruction(null);
             setAssistantHighlight(
               selectedDesignIssue
                 ? highlightForIssue(selectedDesignIssue)
@@ -1382,6 +1416,15 @@ function App() {
                 ? highlightForIssue(selectedDesignIssue)
                 : { nodeIds: [], edgeIds: [] }
             );
+          }}
+          askResponse={askDesignResponse}
+          askHistory={askDesignHistory}
+          onAsk={requestAskDesign}
+          onDismissAsk={() => {
+            setDesignChangeSet(null);
+            setAskDesignResponse(null);
+            setActiveAskInstruction(null);
+            setAssistantHighlight({ nodeIds: [], edgeIds: [] });
           }}
           onClose={() => {
             setShowDesignAssistant(false);
@@ -1436,6 +1479,8 @@ function App() {
           nodes={nodes}
           onUpdateEdge={updateEdge}
           onDeleteEdge={deleteEdge}
+          onReverseEdge={reverseEdge}
+          error={edgeInspectorError}
         />
 
       ) : (

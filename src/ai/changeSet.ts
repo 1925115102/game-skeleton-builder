@@ -75,20 +75,33 @@ export function applyDesignChangeSet(
 
   const finalNodes = nextNodes.filter((node) => nodeMap.has(node.id));
   const finalEdges = nextEdges.filter((edge) => edgeMap.has(edge.id));
-  const seenEdges = new Set<string>();
-  for (const edge of finalEdges) {
-    if (!nodeMap.has(edge.source) || !nodeMap.has(edge.target)) return invalid('The change set would leave a dangling edge.');
-    if (edge.source === edge.target) return invalid('The change set would create a self-edge.');
-    const relation = edge.data?.relation;
-    if (!relation || !edgeTypes.has(relation)) return invalid('The change set contains an invalid edge relationship.');
-    const key = `${edge.source}|${edge.target}|${relation}`;
-    if (seenEdges.has(key)) return invalid('The change set would create a duplicate equivalent edge.');
-    seenEdges.add(key);
-  }
-
-  if (containsCycle(finalEdges)) return invalid('The change set would create a hierarchy containment cycle.');
+  const validationError = validateCanonicalGraph(finalNodes, finalEdges);
+  if (validationError) return invalid(validationError);
 
   return { success: true, nodes: finalNodes, edges: finalEdges };
+}
+
+export function validateCanonicalGraph(nodes: GameNode[], edges: GameEdge[]): string | null {
+  const nodeIds = new Set<string>();
+  for (const node of nodes) {
+    if (!node.id || nodeIds.has(node.id)) return 'The graph contains duplicate node IDs.';
+    nodeIds.add(node.id);
+  }
+  const edgeIds = new Set<string>();
+  const seenEdges = new Set<string>();
+  for (const edge of edges) {
+    if (!edge.id || edgeIds.has(edge.id)) return 'The graph contains duplicate edge IDs.';
+    edgeIds.add(edge.id);
+    if (!nodeIds.has(edge.source) || !nodeIds.has(edge.target)) return 'The graph would contain a dangling edge.';
+    if (edge.source === edge.target) return 'The graph would contain a self-edge.';
+    const relation = edge.data?.relation;
+    if (!relation || !edgeTypes.has(relation)) return 'The graph contains an invalid edge relationship.';
+    const key = `${edge.source}|${edge.target}|${relation}`;
+    if (seenEdges.has(key)) return 'The graph would contain a duplicate equivalent edge.';
+    seenEdges.add(key);
+  }
+  if (containsCycle(edges)) return 'The graph would contain a hierarchy containment cycle.';
+  return null;
 }
 
 function invalid(error: string): { success: false; error: string } {

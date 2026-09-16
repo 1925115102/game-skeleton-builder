@@ -26,6 +26,8 @@ interface EdgeInspectorProps {
   onDeleteEdge: (
     edgeId: string
   ) => void;
+  onReverseEdge: (edgeId: string) => void;
+  error: string | null;
 }
 
 
@@ -45,6 +47,8 @@ function EdgeInspector({
   nodes,
   onUpdateEdge,
   onDeleteEdge,
+  onReverseEdge,
+  error,
 }: EdgeInspectorProps) {
 
   const sourceNode =
@@ -107,6 +111,20 @@ function EdgeInspector({
 
       </label>
 
+
+      <label>
+
+        Direction
+
+        <input value={`${sourceData?.label ?? 'Unknown node'} → ${targetData?.label ?? 'Unknown node'}`} disabled />
+
+      </label>
+
+      {error && <p role="alert">{error}</p>}
+
+      <button className="delete-button" onClick={() => onReverseEdge(edge.id)}>
+        Reverse Direction
+      </button>
 
       <label>
 

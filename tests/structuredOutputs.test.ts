@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { zodTextFormat } from 'openai/helpers/zod';
 import { AIReviewSchema } from '../server/aiReviewSchema';
-import { DesignAnalysisSchema, DesignChangeSetSchema } from '../server/designAssistantSchema';
+import { AskDesignResponseSchema, DesignAnalysisSchema, DesignChangeSetSchema } from '../server/designAssistantSchema';
 import { GuidedDesignProposalSchema } from '../server/guidedDesignSchema';
 import { GameReportSchema } from '../server/gameReportSchema';
 
@@ -13,6 +13,7 @@ test('every AI structured-output schema converts to a strict required JSON schem
     ['design_analysis', DesignAnalysisSchema],
     ['design_change_set', DesignChangeSetSchema],
     ['game_report', GameReportSchema],
+    ['ask_design_response', AskDesignResponseSchema],
   ] as const;
 
   for (const [name, schema] of schemas) {

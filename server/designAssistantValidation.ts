@@ -1,9 +1,9 @@
 import type { z } from 'zod/v4';
-import type { DesignChangeRequestSchema, DesignChangeSetSchema } from './designAssistantSchema';
+import type { DesignChangeSetSchema } from './designAssistantSchema';
 
 /** Guards model output before it reaches the browser. The client keeps the same atomic guard. */
 export function validateExistingEdgeReferences(
-  request: z.infer<typeof DesignChangeRequestSchema>,
+  request: { skeleton: { edges: Array<{ id: string }> } },
   changeSet: z.infer<typeof DesignChangeSetSchema>
 ): string | null {
   const edgeIds = new Set(request.skeleton.edges.map((edge) => edge.id));
