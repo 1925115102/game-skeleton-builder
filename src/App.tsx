@@ -37,6 +37,7 @@ import {
 import '@xyflow/react/dist/style.css';
 
 import GameNodeComponent from './GameNode';
+import RelationshipEdge from './RelationshipEdge';
 import NodeInspector from './NodeInspector';
 import EdgeInspector from './EdgeInspector';
 import FixPanel from './FixPanel';
@@ -80,6 +81,8 @@ import DesignAssistantPanel from './DesignAssistantPanel';
 import { applyDesignChangeSet, type DesignChangeSet } from './ai/changeSet';
 import { highlightForChangeSet, highlightForIssue, type AssistantHighlight } from './ai/designAssistantHighlights';
 import { createProjectMetadata, getProjectExportFilename, migrateProjectDocument, type ProjectMetadata } from './projectState';
+import { getAutoLayoutedNodes } from './graph/autoLayout';
+import { edgePresentation, relationshipLabel } from './graph/edgePresentation';
 
 // ======================================================
 // Custom Node Components
@@ -87,6 +90,10 @@ import { createProjectMetadata, getProjectExportFilename, migrateProjectDocument
 
 const nodeTypes = {
   gameNode: GameNodeComponent,
+};
+
+const edgeTypes = {
+  relationshipEdge: RelationshipEdge,
 };
 
 
@@ -166,7 +173,7 @@ const initialEdges: GameEdge[] = [
     id: 'explore-material',
     source: 'explore',
     target: 'material',
-    label: 'PRODUCES',
+    label: 'Produces',
     data: {
       relation: 'produces',
     },
@@ -176,7 +183,7 @@ const initialEdges: GameEdge[] = [
     id: 'material-alchemy',
     source: 'material',
     target: 'alchemy',
-    label: 'CONSUMES',
+    label: 'Consumes',
     data: {
       relation: 'consumes',
     },
@@ -186,7 +193,7 @@ const initialEdges: GameEdge[] = [
     id: 'alchemy-boss',
     source: 'alchemy',
     target: 'boss',
-    label: 'IMPROVES',
+    label: 'Improves',
     data: {
       relation: 'improves',
     },
@@ -196,7 +203,7 @@ const initialEdges: GameEdge[] = [
     id: 'boss-breakthrough',
     source: 'boss',
     target: 'breakthrough',
-    label: 'UNLOCKS',
+    label: 'Unlocks',
     data: {
       relation: 'unlocks',
     },
@@ -283,6 +290,8 @@ function App() {
   const [designAssistantError, setDesignAssistantError] = useState<string | null>(null);
   const [designAssistantAnalysis, setDesignAssistantAnalysis] = useState<Pick<AIReviewResult, 'summary' | 'strengths' | 'issues'> | null>(null);
   const [designChangeSet, setDesignChangeSet] = useState<DesignChangeSet | null>(null);
+  const [suggestionsByIssue, setSuggestionsByIssue] = useState<Record<string, DesignChangeSet>>({});
+  const [appliedSuggestionIssueIds, setAppliedSuggestionIssueIds] = useState<string[]>([]);
   const [selectedDesignIssue, setSelectedDesignIssue] = useState<AIIssue | null>(null);
   const [analysisStale, setAnalysisStale] = useState(false);
   const [isApplyingChangeSet, setIsApplyingChangeSet] = useState(false);
@@ -301,11 +310,14 @@ function App() {
       ...node,
       data: { ...node.data, highlighted: nodeIds.has(node.id) },
     })));
-    setEdges((currentEdges) => currentEdges.map((edge) => ({
-      ...edge,
-      data: { ...edge.data, relation: edge.data?.relation ?? 'leads_to', highlighted: edgeIds.has(edge.id) },
-      style: edgeIds.has(edge.id) ? { ...edge.style, stroke: '#ffb020', strokeWidth: 3 } : { ...edge.style, stroke: undefined, strokeWidth: undefined },
-    })));
+    setEdges((currentEdges) => currentEdges.map((edge) => {
+      const highlighted = edgeIds.has(edge.id);
+      const enrichedEdge: GameEdge = {
+        ...edge,
+        data: { ...edge.data, relation: edge.data?.relation ?? 'leads_to', highlighted },
+      };
+      return { ...enrichedEdge, ...edgePresentation(enrichedEdge, currentEdges, highlighted) };
+    }));
   }, [assistantHighlight, setNodes, setEdges]);
 
   const [showProjectPanel, setShowProjectPanel] =
@@ -753,7 +765,7 @@ function App() {
         targetHandle:
           connection.targetHandle,
 
-        label: 'LEADS TO',
+        label: relationshipLabel('leads_to'),
 
         data: {
           relation: 'leads_to',
@@ -762,12 +774,10 @@ function App() {
       };
 
 
-      setEdges((currentEdges) =>
-        addEdge(
-          newEdge,
-          currentEdges
-        )
-      );
+      setEdges((currentEdges) => addEdge(
+        { ...newEdge, ...edgePresentation(newEdge, currentEdges) },
+        currentEdges
+      ));
 
     },
     [setEdges]
@@ -785,11 +795,22 @@ function App() {
         : dy >= 0 ? ['Bottom', 'Top'] : ['Top', 'Bottom'];
       const sourceHandle = `source-${direction[0].toLowerCase()}`;
       const targetHandle = `target-${direction[1].toLowerCase()}`;
-      return edge.sourceHandle === sourceHandle && edge.targetHandle === targetHandle && edge.type === 'smoothstep'
-        ? edge
-        : { ...edge, sourceHandle, targetHandle, type: 'smoothstep' };
+      const presentation = edgePresentation(edge, currentEdges, Boolean(edge.data?.highlighted));
+      return {
+        ...edge,
+        sourceHandle,
+        targetHandle,
+        ...presentation,
+      };
     }));
   }, [nodes, setEdges]);
+
+  const autoLayout = useCallback(() => {
+    setNodes(getAutoLayoutedNodes(nodes, edges));
+    window.setTimeout(() => {
+      reactFlowInstance?.fitView({ padding: 0.18, duration: 350 });
+    }, 0);
+  }, [edges, nodes, reactFlowInstance, setNodes]);
 
 
   // ====================================================
@@ -1292,7 +1313,7 @@ function App() {
         id: crypto.randomUUID(),
         source: result.sourceId,
         target: result.targetId,
-        label: proposal.relation.replaceAll('_', ' ').toUpperCase(),
+        label: relationshipLabel(proposal.relation),
         data: { relation: proposal.relation },
       };
 
@@ -1397,7 +1418,7 @@ function App() {
         id: crypto.randomUUID(),
         source: result.sourceId,
         target: result.targetId,
-        label: proposal.relation.replaceAll('_', ' ').toUpperCase(),
+        label: relationshipLabel(proposal.relation),
         data: { relation: proposal.relation },
       });
       acceptedRelationshipIds.push(proposal.proposalId);
@@ -1441,6 +1462,8 @@ function App() {
       const data = await response.json() as { result: Pick<AIReviewResult, 'summary' | 'strengths' | 'issues'> };
       setDesignAssistantAnalysis(data.result);
       setSelectedDesignIssue(null);
+      setSuggestionsByIssue({});
+      setAppliedSuggestionIssueIds([]);
       setAssistantHighlight({ nodeIds: [], edgeIds: [] });
       setAnalysisStale(false);
     } catch (error) {
@@ -1452,10 +1475,19 @@ function App() {
   }, [projectName, projectBrief, nodes, edges]);
 
   const requestDesignChangeSet = useCallback(async (issue: AIIssue) => {
+    const cached = suggestionsByIssue[issue.id];
+    if (cached) {
+      setDesignAssistantError(null);
+      setSelectedDesignIssue(issue);
+      setDesignChangeSet(cached);
+      setAssistantHighlight(highlightForChangeSet(cached, nodesRef.current, edgesRef.current));
+      return;
+    }
     try {
       setDesignAssistantLoading(true);
       setDesignAssistantError(null);
       setSelectedDesignIssue(issue);
+      setDesignChangeSet(null);
       setAssistantHighlight(highlightForIssue(issue));
       const response = await fetch('http://localhost:3001/api/design-assistant/change-set', {
         method: 'POST',
@@ -1465,6 +1497,7 @@ function App() {
       if (!response.ok) throw new Error(`Server returned ${response.status}.`);
       const data = await response.json() as { result: DesignChangeSet };
       setDesignChangeSet(data.result);
+      setSuggestionsByIssue((current) => ({ ...current, [issue.id]: data.result }));
       setAssistantHighlight(
         highlightForChangeSet(data.result, nodesRef.current, edgesRef.current)
       );
@@ -1474,7 +1507,7 @@ function App() {
     } finally {
       setDesignAssistantLoading(false);
     }
-  }, [projectName, projectBrief, nodes, edges]);
+  }, [projectName, projectBrief, nodes, edges, suggestionsByIssue]);
 
   const approveDesignChangeSet = useCallback(() => {
     if (!designChangeSet || applyingRef.current) return;
@@ -1496,7 +1529,7 @@ function App() {
         setNodes(result.nodes);
         setEdges(result.edges);
         setDesignChangeSet(null);
-        setSelectedDesignIssue(null);
+        if (selectedDesignIssue) setAppliedSuggestionIssueIds((current) => [...new Set([...current, selectedDesignIssue.id])]);
         setAssistantHighlight({ nodeIds: [], edgeIds: [] });
         setAnalysisStale(true);
       } finally {
@@ -1504,7 +1537,7 @@ function App() {
         setIsApplyingChangeSet(false);
       }
     }, 0);
-  }, [designChangeSet, setNodes, setEdges]);
+  }, [designChangeSet, selectedDesignIssue, setNodes, setEdges]);
 
 
   // ====================================================
@@ -1541,6 +1574,7 @@ function App() {
           nodes={nodes}
           edges={edges}
           nodeTypes={nodeTypes}
+          edgeTypes={edgeTypes}
 
           onNodesChange={onNodesChange}
           onEdgesChange={onEdgesChange}
@@ -1607,6 +1641,15 @@ function App() {
                 style={toolbarButtonStyle}
               >
                 Export JSON
+              </button>
+
+              <button
+                onClick={autoLayout}
+                style={toolbarButtonStyle}
+                disabled={nodes.length < 2}
+                title="Arrange the current graph without changing its design"
+              >
+                Auto Layout
               </button>
 
 
@@ -1678,6 +1721,11 @@ function App() {
         <DesignAssistantPanel
           analysis={designAssistantAnalysis}
           changeSet={designChangeSet}
+          selectedIssue={selectedDesignIssue}
+          suggestedIssueIds={Object.keys(suggestionsByIssue)}
+          appliedIssueIds={appliedSuggestionIssueIds}
+          nodes={nodes}
+          edges={edges}
           loading={designAssistantLoading}
           applying={isApplyingChangeSet}
           analysisStale={analysisStale}
@@ -1687,6 +1735,15 @@ function App() {
           onApprove={approveDesignChangeSet}
           onReject={() => {
             setDesignChangeSet(null);
+            setAssistantHighlight(
+              selectedDesignIssue
+                ? highlightForIssue(selectedDesignIssue)
+                : { nodeIds: [], edgeIds: [] }
+            );
+          }}
+          onBack={() => {
+            setDesignChangeSet(null);
+            setDesignAssistantError(null);
             setAssistantHighlight(
               selectedDesignIssue
                 ? highlightForIssue(selectedDesignIssue)

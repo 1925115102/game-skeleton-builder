@@ -5,6 +5,7 @@ import type {
   GameNodeImportance,
   GameNodeType,
 } from '../types';
+import { relationshipLabel } from '../graph/edgePresentation';
 
 export type DesignChangeOperation =
   | { type: 'ADD_NODE'; node: { id: string; label: string; gameType: GameNodeType; importance: GameNodeImportance; description: string | null } }
@@ -58,13 +59,13 @@ export function applyDesignChangeSet(
     } else if (operation.type === 'ADD_EDGE') {
       const { edge } = operation;
       if (!edge.id || edgeMap.has(edge.id) || !edgeTypes.has(edge.relation)) return invalid('Invalid ADD_EDGE operation.');
-      const nextEdge: GameEdge = { id: edge.id, source: edge.source, target: edge.target, label: edge.relation.replaceAll('_', ' ').toUpperCase(), data: { relation: edge.relation }, type: 'smoothstep' };
+      const nextEdge: GameEdge = { id: edge.id, source: edge.source, target: edge.target, label: relationshipLabel(edge.relation), data: { relation: edge.relation }, type: 'smoothstep' };
       nextEdges.push(nextEdge); edgeMap.set(edge.id, nextEdge);
     } else if (operation.type === 'UPDATE_EDGE') {
       const edge = edgeMap.get(operation.edgeId);
       if (!edge || !edgeTypes.has(operation.relation)) return invalid('Invalid UPDATE_EDGE operation.');
       edge.data = { ...edge.data, relation: operation.relation };
-      edge.label = operation.relation.replaceAll('_', ' ').toUpperCase();
+      edge.label = relationshipLabel(operation.relation);
     } else if (operation.type === 'REMOVE_EDGE') {
       if (!edgeMap.has(operation.edgeId)) return invalid('REMOVE_EDGE references a nonexistent edge.');
       edgeMap.delete(operation.edgeId);
