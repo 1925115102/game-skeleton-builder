@@ -78,6 +78,7 @@ import type {
 } from './guidedDesign/guidedDesignTypes';
 import DesignAssistantPanel from './DesignAssistantPanel';
 import { applyDesignChangeSet, type DesignChangeSet } from './ai/changeSet';
+import { highlightForChangeSet, highlightForIssue, type AssistantHighlight } from './ai/designAssistantHighlights';
 import { createProjectMetadata, getProjectExportFilename, migrateProjectDocument, type ProjectMetadata } from './projectState';
 
 // ======================================================
@@ -282,6 +283,30 @@ function App() {
   const [designAssistantError, setDesignAssistantError] = useState<string | null>(null);
   const [designAssistantAnalysis, setDesignAssistantAnalysis] = useState<Pick<AIReviewResult, 'summary' | 'strengths' | 'issues'> | null>(null);
   const [designChangeSet, setDesignChangeSet] = useState<DesignChangeSet | null>(null);
+  const [selectedDesignIssue, setSelectedDesignIssue] = useState<AIIssue | null>(null);
+  const [analysisStale, setAnalysisStale] = useState(false);
+  const [isApplyingChangeSet, setIsApplyingChangeSet] = useState(false);
+  const [assistantHighlight, setAssistantHighlight] = useState<AssistantHighlight>({ nodeIds: [], edgeIds: [] });
+  const nodesRef = useRef(nodes);
+  const edgesRef = useRef(edges);
+  const applyingRef = useRef(false);
+
+  useEffect(() => { nodesRef.current = nodes; }, [nodes]);
+  useEffect(() => { edgesRef.current = edges; }, [edges]);
+
+  useEffect(() => {
+    const nodeIds = new Set(assistantHighlight.nodeIds);
+    const edgeIds = new Set(assistantHighlight.edgeIds);
+    setNodes((currentNodes) => currentNodes.map((node) => ({
+      ...node,
+      data: { ...node.data, highlighted: nodeIds.has(node.id) },
+    })));
+    setEdges((currentEdges) => currentEdges.map((edge) => ({
+      ...edge,
+      data: { ...edge.data, relation: edge.data?.relation ?? 'leads_to', highlighted: edgeIds.has(edge.id) },
+      style: edgeIds.has(edge.id) ? { ...edge.style, stroke: '#ffb020', strokeWidth: 3 } : { ...edge.style, stroke: undefined, strokeWidth: undefined },
+    })));
+  }, [assistantHighlight, setNodes, setEdges]);
 
   const [showProjectPanel, setShowProjectPanel] =
     useState(false);
@@ -1415,6 +1440,9 @@ function App() {
       if (!response.ok) throw new Error(`Server returned ${response.status}.`);
       const data = await response.json() as { result: Pick<AIReviewResult, 'summary' | 'strengths' | 'issues'> };
       setDesignAssistantAnalysis(data.result);
+      setSelectedDesignIssue(null);
+      setAssistantHighlight({ nodeIds: [], edgeIds: [] });
+      setAnalysisStale(false);
     } catch (error) {
       console.error('Design Assistant analysis error:', error);
       setDesignAssistantError('Design analysis failed. Check that the AI server is running and try again.');
@@ -1427,6 +1455,8 @@ function App() {
     try {
       setDesignAssistantLoading(true);
       setDesignAssistantError(null);
+      setSelectedDesignIssue(issue);
+      setAssistantHighlight(highlightForIssue(issue));
       const response = await fetch('http://localhost:3001/api/design-assistant/change-set', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -1435,6 +1465,9 @@ function App() {
       if (!response.ok) throw new Error(`Server returned ${response.status}.`);
       const data = await response.json() as { result: DesignChangeSet };
       setDesignChangeSet(data.result);
+      setAssistantHighlight(
+        highlightForChangeSet(data.result, nodesRef.current, edgesRef.current)
+      );
     } catch (error) {
       console.error('Design Assistant change-set error:', error);
       setDesignAssistantError('Design change proposal failed. Try again.');
@@ -1444,17 +1477,34 @@ function App() {
   }, [projectName, projectBrief, nodes, edges]);
 
   const approveDesignChangeSet = useCallback(() => {
-    if (!designChangeSet) return;
-    const result = applyDesignChangeSet(nodes, edges, designChangeSet);
-    if (!result.success) {
-      setDesignAssistantError(`Change set was not applied: ${result.error}`);
-      return;
-    }
-    setNodes(result.nodes);
-    setEdges(result.edges);
-    setDesignChangeSet(null);
-    setDesignAssistantAnalysis(null);
-  }, [designChangeSet, nodes, edges, setNodes, setEdges]);
+    if (!designChangeSet || applyingRef.current) return;
+    applyingRef.current = true;
+    setIsApplyingChangeSet(true);
+    setDesignAssistantError(null);
+
+    window.setTimeout(() => {
+      try {
+        const result = applyDesignChangeSet(
+          nodesRef.current,
+          edgesRef.current,
+          designChangeSet
+        );
+        if (!result.success) {
+          setDesignAssistantError(`Could not apply this change set: ${result.error}`);
+          return;
+        }
+        setNodes(result.nodes);
+        setEdges(result.edges);
+        setDesignChangeSet(null);
+        setSelectedDesignIssue(null);
+        setAssistantHighlight({ nodeIds: [], edgeIds: [] });
+        setAnalysisStale(true);
+      } finally {
+        applyingRef.current = false;
+        setIsApplyingChangeSet(false);
+      }
+    }, 0);
+  }, [designChangeSet, setNodes, setEdges]);
 
 
   // ====================================================
@@ -1572,6 +1622,7 @@ function App() {
                   setShowProjectPanel(true);
                   setShowGuidedDesign(false);
                   setShowDesignAssistant(false);
+                  setAssistantHighlight({ nodeIds: [], edgeIds: [] });
                 }}
                 style={toolbarButtonStyle}
               >
@@ -1586,13 +1637,13 @@ function App() {
               </button>
               
               <button
-                onClick={requestDesignAnalysis}
+                onClick={() => {
+                  setShowDesignAssistant(true);
+                  setDesignAssistantError(null);
+                }}
                 style={toolbarButtonStyle}
-                disabled={designAssistantLoading}
               >
-                {designAssistantLoading
-                  ? 'Analyzing...'
-                  : 'AI Design Assistant'}
+                AI Design Assistant
               </button>
 
               <input
@@ -1628,11 +1679,24 @@ function App() {
           analysis={designAssistantAnalysis}
           changeSet={designChangeSet}
           loading={designAssistantLoading}
+          applying={isApplyingChangeSet}
+          analysisStale={analysisStale}
           error={designAssistantError}
           onRequestChange={requestDesignChangeSet}
+          onAnalyze={requestDesignAnalysis}
           onApprove={approveDesignChangeSet}
-          onReject={() => setDesignChangeSet(null)}
-          onClose={() => setShowDesignAssistant(false)}
+          onReject={() => {
+            setDesignChangeSet(null);
+            setAssistantHighlight(
+              selectedDesignIssue
+                ? highlightForIssue(selectedDesignIssue)
+                : { nodeIds: [], edgeIds: [] }
+            );
+          }}
+          onClose={() => {
+            setShowDesignAssistant(false);
+            setAssistantHighlight({ nodeIds: [], edgeIds: [] });
+          }}
         />
 
       ) : isAIReviewLoading ? (

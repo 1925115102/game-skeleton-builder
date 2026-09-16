@@ -31,8 +31,19 @@ If you are developing a production application, we recommend enabling type-aware
 
 See the [Oxlint rules documentation](https://oxc.rs/docs/guide/usage/linter/rules) for the full list of rules and categories.
 
-cd ~/game-skeleton-builder
-npm run dev
+## Development
 
-cd ~/game-skeleton-builder
-npx tsx server/index.ts
+From the project root, start the Vite client and Express/OpenAI server together:
+
+```bash
+npm run dev
+```
+
+For debugging either process separately:
+
+```bash
+npm run dev:client
+npm run dev:server
+```
+
+Use `Ctrl+C` to stop both processes started by `npm run dev`.
