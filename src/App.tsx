@@ -83,6 +83,8 @@ import { highlightForChangeSet, highlightForIssue, type AssistantHighlight } fro
 import { createProjectMetadata, getProjectExportFilename, migrateProjectDocument, type ProjectMetadata } from './projectState';
 import { getAutoLayoutedNodes } from './graph/autoLayout';
 import { edgePresentation, relationshipLabel } from './graph/edgePresentation';
+import { routeEdges } from './graph/edgeRouting';
+import { markIssueApplied } from './ai/issueLifecycle';
 
 // ======================================================
 // Custom Node Components
@@ -784,22 +786,10 @@ function App() {
   );
 
   useEffect(() => {
-    setEdges((currentEdges) => currentEdges.map((edge) => {
-      const source = nodes.find((node) => node.id === edge.source);
-      const target = nodes.find((node) => node.id === edge.target);
-      if (!source || !target) return edge;
-      const dx = target.position.x - source.position.x;
-      const dy = target.position.y - source.position.y;
-      const direction = Math.abs(dx) >= Math.abs(dy)
-        ? dx >= 0 ? ['Right', 'Left'] : ['Left', 'Right']
-        : dy >= 0 ? ['Bottom', 'Top'] : ['Top', 'Bottom'];
-      const sourceHandle = `source-${direction[0].toLowerCase()}`;
-      const targetHandle = `target-${direction[1].toLowerCase()}`;
+    setEdges((currentEdges) => routeEdges(nodes, currentEdges).map((edge) => {
       const presentation = edgePresentation(edge, currentEdges, Boolean(edge.data?.highlighted));
       return {
         ...edge,
-        sourceHandle,
-        targetHandle,
         ...presentation,
       };
     }));
@@ -1480,9 +1470,14 @@ function App() {
       setDesignAssistantError(null);
       setSelectedDesignIssue(issue);
       setDesignChangeSet(cached);
-      setAssistantHighlight(highlightForChangeSet(cached, nodesRef.current, edgesRef.current));
+      setAssistantHighlight(
+        appliedSuggestionIssueIds.includes(issue.id)
+          ? { nodeIds: [], edgeIds: [] }
+          : highlightForChangeSet(cached, nodesRef.current, edgesRef.current)
+      );
       return;
     }
+    if (appliedSuggestionIssueIds.includes(issue.id)) return;
     try {
       setDesignAssistantLoading(true);
       setDesignAssistantError(null);
@@ -1507,7 +1502,7 @@ function App() {
     } finally {
       setDesignAssistantLoading(false);
     }
-  }, [projectName, projectBrief, nodes, edges, suggestionsByIssue]);
+  }, [projectName, projectBrief, nodes, edges, suggestionsByIssue, appliedSuggestionIssueIds]);
 
   const approveDesignChangeSet = useCallback(() => {
     if (!designChangeSet || applyingRef.current) return;
@@ -1529,7 +1524,7 @@ function App() {
         setNodes(result.nodes);
         setEdges(result.edges);
         setDesignChangeSet(null);
-        if (selectedDesignIssue) setAppliedSuggestionIssueIds((current) => [...new Set([...current, selectedDesignIssue.id])]);
+        if (selectedDesignIssue) setAppliedSuggestionIssueIds((current) => markIssueApplied(current, selectedDesignIssue.id));
         setAssistantHighlight({ nodeIds: [], edgeIds: [] });
         setAnalysisStale(true);
       } finally {

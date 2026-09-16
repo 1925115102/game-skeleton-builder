@@ -33,6 +33,7 @@ export function serializeSkeleton(
 
 
     edges: edges.map((edge) => ({
+      id: edge.id,
       source:
         edge.source,
 

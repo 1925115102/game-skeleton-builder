@@ -29,7 +29,7 @@ export function presentChangeSet(changeSet: DesignChangeSet, nodes: GameNode[], 
     }
     const edge = knownEdges.get(operation.edgeId);
     const connection = edge ? `${name(edge.source)} → ${name(edge.target)}` : 'Existing connection';
-    if (operation.type === 'REMOVE_EDGE') return { action: 'Remove connection', title: connection };
+    if (operation.type === 'REMOVE_EDGE') return { action: 'Remove connection', title: connection, detail: edge ? relationshipLabel(edge.data?.relation ?? 'leads_to') : undefined };
     return {
       action: 'Change connection',
       title: connection,

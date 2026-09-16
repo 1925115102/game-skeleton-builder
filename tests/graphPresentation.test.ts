@@ -1,8 +1,9 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { presentChangeSet } from '../src/ai/changeSetPresentation';
-import { getAutoLayoutedNodes } from '../src/graph/autoLayout';
+import { COMPACT_NODE_DIMENSIONS, getAutoLayoutedNodes } from '../src/graph/autoLayout';
 import { edgePresentation, hasOppositeDirection, relationshipLabel } from '../src/graph/edgePresentation';
+import { routeEdges } from '../src/graph/edgeRouting';
 import type { GameEdge, GameEdgeType, GameNode } from '../src/types';
 
 const node = (id: string, label = id): GameNode => ({ id, type: 'gameNode', position: { x: 2, y: 3 }, data: { label, gameType: 'activity', importance: 'core' } });
@@ -21,6 +22,18 @@ test('auto layout handles empty and single-node graphs', () => {
   assert.deepEqual(getAutoLayoutedNodes([], []), []);
   const only = node('only');
   assert.deepEqual(getAutoLayoutedNodes([only], []), [only]);
+});
+
+test('compact layout dimensions ignore long descriptions and keep positions bounded', () => {
+  const longDescription = 'A very long description '.repeat(100);
+  const nodes = Array.from({ length: 12 }, (_, index) => ({ ...node(`n${index}`, `Node ${index}`), data: { ...node(`n${index}`).data, description: longDescription } }));
+  const edges = nodes.slice(1).map((item, index) => edge(`e${index}`, nodes[index].id, item.id));
+  const result = getAutoLayoutedNodes(nodes, edges);
+  const xs = result.map((item) => item.position.x);
+  const ys = result.map((item) => item.position.y);
+  assert.deepEqual(COMPACT_NODE_DIMENSIONS, { width: 200, height: 88 });
+  assert.ok(Math.max(...xs) - Math.min(...xs) < 5000);
+  assert.ok(Math.max(...ys) - Math.min(...ys) < 1500);
 });
 
 test('presents every operation in human-readable language, including added nodes', () => {
@@ -57,4 +70,12 @@ test('edge presentation has an arrow, readable relationship labels, and preserve
   assert.equal(highlighted.style.stroke, '#ff9f1c');
   assert.equal(forward.data?.relation, 'improves');
   assert.equal(reverse.data?.relation, 'requires');
+});
+
+test('routing assigns distinct ports to parallel edges', () => {
+  const nodes = [node('a'), node('b')];
+  const edges = [edge('one', 'a', 'b', 'produces'), edge('two', 'a', 'b', 'requires'), edge('three', 'a', 'b', 'improves')];
+  const routed = routeEdges(nodes, edges);
+  assert.equal(new Set(routed.map((item) => item.sourceHandle)).size, 3);
+  assert.equal(new Set(routed.map((item) => item.targetHandle)).size, 3);
 });

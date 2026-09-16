@@ -33,8 +33,8 @@ function GameNodeComponent({
       ].join(' ')}
     >
 
-      {([Position.Top, Position.Right, Position.Bottom, Position.Left] as const).map((position) => (
-        <Handle key={`target-${position}`} id={`target-${position}`} type="target" position={position} />
+      {handles.map(({ position, slot, style }) => (
+        <Handle key={`target-${position}-${slot}`} id={`target-${position}-${slot}`} type="target" position={position} style={style} />
       ))}
 
 
@@ -53,20 +53,24 @@ function GameNodeComponent({
       </div>
 
 
-      {nodeData.description && (
-        <div className="game-node-description">
-          {nodeData.description}
-        </div>
-      )}
-
-
-      {([Position.Top, Position.Right, Position.Bottom, Position.Left] as const).map((position) => (
-        <Handle key={`source-${position}`} id={`source-${position}`} type="source" position={position} />
+      {handles.map(({ position, slot, style }) => (
+        <Handle key={`source-${position}-${slot}`} id={`source-${position}-${slot}`} type="source" position={position} style={style} />
       ))}
 
     </div>
   );
 }
+
+const handleSlots = [20, 40, 60, 80];
+const handles = ([Position.Top, Position.Right, Position.Bottom, Position.Left] as const).flatMap((position) =>
+  handleSlots.map((offset, slot) => ({
+    position,
+    slot,
+    style: position === Position.Top || position === Position.Bottom
+      ? { left: `${offset}%` }
+      : { top: `${offset}%` },
+  }))
+);
 
 
 export default GameNodeComponent;

@@ -8,7 +8,7 @@ const projectAndSkeleton = z.object({
   project: z.object({ name: z.string(), brief: z.string() }),
   skeleton: z.object({
     nodes: z.array(z.object({ id: z.string(), label: z.string(), type: nodeType, importance, description: z.string().optional() })),
-    edges: z.array(z.object({ source: z.string(), target: z.string(), relation })),
+    edges: z.array(z.object({ id: z.string(), source: z.string(), target: z.string(), relation })),
   }),
 });
 

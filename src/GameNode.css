@@ -1,6 +1,10 @@
 .game-node {
-  min-width: 150px;
-  padding: 12px 14px;
+  box-sizing: border-box;
+  width: 200px;
+  min-width: 170px;
+  max-width: 220px;
+  min-height: 82px;
+  padding: 10px 12px;
   border: 2px solid #333;
   border-radius: 10px;
   background: white;
@@ -19,6 +23,8 @@
 .game-node-label {
   font-size: 16px;
   font-weight: 700;
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 
 .game-node-importance {
@@ -33,6 +39,12 @@
   font-size: 12px;
   line-height: 1.35;
   opacity: 0.75;
+}
+
+/* Descriptions remain canonical data and are edited in the Node Inspector.
+   The canvas intentionally stays in compact overview mode. */
+.game-node-description {
+  display: none;
 }
 
 .game-node-activity {

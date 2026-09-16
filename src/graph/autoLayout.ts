@@ -1,8 +1,7 @@
 import dagre from '@dagrejs/dagre';
 import type { GameEdge, GameNode } from '../types';
 
-const NODE_WIDTH = 210;
-const NODE_HEIGHT = 120;
+export const COMPACT_NODE_DIMENSIONS = { width: 200, height: 88 };
 
 /**
  * Produces presentation positions only. The canonical node/edge identities and
@@ -16,14 +15,14 @@ export function getAutoLayoutedNodes(nodes: GameNode[], edges: GameEdge[]): Game
   graph.setGraph({
     rankdir: 'LR',
     ranker: 'network-simplex',
-    nodesep: 80,
-    ranksep: 150,
-    edgesep: 40,
-    marginx: 40,
-    marginy: 40,
+    nodesep: 62,
+    ranksep: 135,
+    edgesep: 28,
+    marginx: 56,
+    marginy: 56,
   });
 
-  for (const node of nodes) graph.setNode(node.id, { width: NODE_WIDTH, height: NODE_HEIGHT });
+  for (const node of nodes) graph.setNode(node.id, { ...COMPACT_NODE_DIMENSIONS });
   for (const edge of edges) {
     if (nodes.some((node) => node.id === edge.source) && nodes.some((node) => node.id === edge.target)) {
       graph.setEdge(edge.source, edge.target, {}, edge.id);
@@ -39,7 +38,7 @@ export function getAutoLayoutedNodes(nodes: GameNode[], edges: GameEdge[]): Game
     }
     return {
       ...node,
-      position: { x: positioned.x - NODE_WIDTH / 2, y: positioned.y - NODE_HEIGHT / 2 },
+      position: { x: positioned.x - COMPACT_NODE_DIMENSIONS.width / 2, y: positioned.y - COMPACT_NODE_DIMENSIONS.height / 2 },
     };
   });
 }

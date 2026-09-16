@@ -16,6 +16,8 @@ export interface AISkeletonNode {
 
 
 export interface AISkeletonEdge {
+  id: string;
+
   source: string;
 
   target: string;

@@ -45,6 +45,7 @@ import {
   analysisPrompt,
   changePrompt,
 } from './designAssistantPrompt';
+import { validateExistingEdgeReferences } from './designAssistantValidation';
 
 const serverDirectory = dirname(
   fileURLToPath(import.meta.url)
@@ -274,6 +275,8 @@ app.post('/api/design-assistant/change-set', async (req, res) => {
       text: { format: zodTextFormat(DesignChangeSetSchema, 'design_change_set') },
     });
     if (!response.output_parsed) throw new Error('AI returned no parsed design change set.');
+    const referenceError = validateExistingEdgeReferences(parsed.data, response.output_parsed);
+    if (referenceError) throw new Error(referenceError);
     return res.json({ result: response.output_parsed });
   } catch (error) {
     logServerError('Design Assistant change set failed', error);

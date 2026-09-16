@@ -43,6 +43,16 @@ test('rejects dangling, self, duplicate, and invalid references atomically', () 
   }
 });
 
+test('removes an exact canonical edge ID and rejects an invented one atomically', () => {
+  const nodes = [node('explore'), node('materials')];
+  const edges = [{ id: 'edge-explore-materials-produces', source: 'explore', target: 'materials', data: { relation: 'produces' as const } }];
+  const valid = applyDesignChangeSet(nodes, edges, { title: '', rationale: '', expectedEffect: '', operations: [{ type: 'REMOVE_EDGE', edgeId: 'edge-explore-materials-produces' }] });
+  assert.equal(valid.success, true); if (valid.success) assert.equal(valid.edges.length, 0);
+  const invalid = applyDesignChangeSet(nodes, edges, { title: '', rationale: '', expectedEffect: '', operations: [{ type: 'REMOVE_EDGE', edgeId: 'invented-edge-id' }] });
+  assert.equal(invalid.success, false);
+  assert.equal(edges.length, 1);
+});
+
 test('migrates 0.1 projects and preserves 0.2 metadata', () => {
   const migrated = migrateProjectDocument({ version: '0.1', name: 'Old', brief: 'Brief', nodes: [], edges: [] });
   assert.equal(migrated?.version, '0.2'); assert.equal(migrated?.project.name, 'Old');

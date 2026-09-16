@@ -1,6 +1,7 @@
 import type { AIReviewResult, AIIssue } from './ai/aiTypes';
 import type { DesignChangeSet } from './ai/changeSet';
 import { presentChangeSet } from './ai/changeSetPresentation';
+import { splitIssuesByLifecycle } from './ai/issueLifecycle';
 import type { GameEdge, GameNode } from './types';
 import './NodeInspector.css';
 
@@ -28,6 +29,8 @@ export default function DesignAssistantPanel(props: Props) {
   const { analysis, changeSet, selectedIssue, suggestedIssueIds, appliedIssueIds, nodes, edges, loading, applying, analysisStale, error, onRequestChange, onAnalyze, onApprove, onReject, onBack, onClose } = props;
   const showingSuggestion = selectedIssue && (changeSet || loading);
   const presentedChanges = changeSet ? presentChangeSet(changeSet, nodes, edges) : [];
+  const issueGroups = analysis ? splitIssuesByLifecycle(analysis.issues, appliedIssueIds) : { active: [], resolved: [] };
+  const selectedIssueApplied = Boolean(selectedIssue && appliedIssueIds.includes(selectedIssue.id));
 
   return <div className="inspector">
     <h2>AI Design Assistant</h2>
@@ -46,26 +49,27 @@ export default function DesignAssistantPanel(props: Props) {
           </div>)}
         </section>
         <section style={sectionStyle}><h4 style={headingStyle}>Expected effect</h4><p style={bodyStyle}>{changeSet.expectedEffect}</p></section>
-        <button style={primaryButtonStyle} onClick={onApprove} disabled={applying}>{applying ? 'Applying...' : 'Approve Changes'}</button>
-        <button style={buttonStyle} onClick={onReject} disabled={applying}>Reject</button>
+        {selectedIssueApplied ? <p role="status" style={appliedNoticeStyle}>Applied to the design in this session. The analysis has not been re-verified.</p> : <>
+          <button style={primaryButtonStyle} onClick={onApprove} disabled={applying}>{applying ? 'Applying...' : 'Approve Changes'}</button>
+          <button style={buttonStyle} onClick={onReject} disabled={applying}>Reject</button>
+        </>}
       </>}
-      {analysis && analysis.issues.filter((issue) => issue.id !== selectedIssue.id).length > 0 && <section style={sectionStyle}>
+      {issueGroups.active.filter((issue) => issue.id !== selectedIssue.id).length > 0 && <section style={sectionStyle}>
         <h4 style={headingStyle}>Other issues</h4>
-        {analysis.issues.filter((issue) => issue.id !== selectedIssue.id).map((issue) => <button key={issue.id} style={issueSwitchStyle} onClick={() => onRequestChange(issue)} disabled={applying}>{issue.title}</button>)}
+        {issueGroups.active.filter((issue) => issue.id !== selectedIssue.id).map((issue) => <button key={issue.id} style={issueSwitchStyle} onClick={() => onRequestChange(issue)} disabled={applying}>{issue.title}</button>)}
       </section>}
     </> : analysis && !loading ? <>
       {analysisStale && <p role="status" style={staleStyle}>Analysis may be outdated because the design changed.</p>}
       <button style={buttonStyle} onClick={onAnalyze}>Re-analyze</button>
       <section style={sectionStyle}><h3>Summary</h3><p style={bodyStyle}>{analysis.summary}</p></section>
       <section style={sectionStyle}><h3>Strengths</h3>{analysis.strengths.map((strength) => <div key={strength.id} style={cardStyle}><strong>{strength.title}</strong><div style={detailStyle}>{strength.description}</div></div>)}</section>
-      <section style={sectionStyle}><h3>Issues</h3>{analysis.issues.map((issue) => {
+      <section style={sectionStyle}><h3>Issues</h3>{issueGroups.active.map((issue) => {
         const hasSuggestion = suggestedIssueIds.includes(issue.id);
-        const wasApplied = appliedIssueIds.includes(issue.id);
         return <div key={issue.id} style={cardStyle}><strong>{issue.title}</strong><div style={detailStyle}>{issue.description}</div>
-          {wasApplied && <span style={appliedStyle}>Applied</span>}
           <button style={smallButtonStyle} onClick={() => onRequestChange(issue)}>{hasSuggestion ? 'View Suggestion' : 'Suggest Improvement'}</button>
         </div>;
       })}</section>
+      {issueGroups.resolved.length > 0 && <section style={sectionStyle}><h3>Resolved</h3>{issueGroups.resolved.map((issue) => <div key={issue.id} style={resolvedCardStyle}><strong>✓ {issue.title}</strong><div style={detailStyle}>Applied to the design in this session.</div>{suggestedIssueIds.includes(issue.id) && <button style={smallButtonStyle} onClick={() => onRequestChange(issue)}>View applied suggestion</button>}</div>)}</section>}
     </> : loading ? <p>Analyzing design…</p> : <button style={primaryButtonStyle} onClick={onAnalyze}>Analyze Design</button>}
     <button style={buttonStyle} onClick={onClose}>Close</button>
   </div>;
@@ -86,5 +90,6 @@ const eyebrowStyle = { fontSize: '12px', color: '#64748b', margin: '10px 0' };
 const actionStyle = { display: 'block', color: '#4f46e5', fontSize: '11px', fontWeight: 700, textTransform: 'uppercase' as const, marginBottom: '2px' };
 const staleStyle = { padding: '8px', borderRadius: '6px', background: '#fff7ed', color: '#9a3412', fontSize: '13px' };
 const errorStyle = { padding: '8px', borderRadius: '6px', background: '#fef2f2', color: '#b91c1c', fontSize: '13px' };
-const appliedStyle = { display: 'inline-block', marginTop: '8px', marginRight: '8px', fontSize: '11px', fontWeight: 700, color: '#15803d' };
 const issueSwitchStyle = { display: 'block', width: '100%', padding: '7px', marginBottom: '5px', textAlign: 'left' as const, border: '1px solid #dbe3ee', borderRadius: '5px', background: '#fff', cursor: 'pointer', fontSize: '12px' };
+const resolvedCardStyle = { ...cardStyle, borderColor: '#bbf7d0', background: '#f0fdf4' };
+const appliedNoticeStyle = { padding: '8px', borderRadius: '6px', background: '#f0fdf4', color: '#166534', fontSize: '13px' };
