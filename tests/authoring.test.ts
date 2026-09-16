@@ -10,11 +10,13 @@ import type { GameEdge, GameNode } from '../src/types';
 const node = (id: string, x = 0, y = 0): GameNode => ({ id, type: 'gameNode', position: { x, y }, data: { label: id, gameType: 'system', importance: 'supporting' } });
 const edge = (id: string, source: string, target: string, relation: 'leads_to' | 'contains' = 'leads_to'): GameEdge => ({ id, source, target, data: { relation } });
 
-test('Ask AI schema supports either a change set or a clarification without mutation', () => {
-  const clarification = AskDesignResponseSchema.safeParse({ interpretation: 'Crafting has two plausible homes.', reasoning: null, clarificationQuestion: 'Should it be part of Alchemy?', changeSet: null });
-  const change = AskDesignResponseSchema.safeParse({ interpretation: 'Add a furnace subsystem.', reasoning: 'It expands Alchemy.', clarificationQuestion: null, changeSet: { title: 'Expand Alchemy', rationale: '', expectedEffect: '', operations: [{ type: 'ADD_NODE', node: { id: 'furnace', label: 'Furnace', gameType: 'system', importance: 'supporting', description: null } }] } });
+test('Ask AI schema supports a change set, clarification, or no-op without mutation', () => {
+  const clarification = AskDesignResponseSchema.safeParse({ interpretation: 'Crafting has two plausible homes.', reasoning: null, clarificationQuestion: 'Should it be part of Alchemy?', changeSet: null, noChanges: false });
+  const change = AskDesignResponseSchema.safeParse({ interpretation: 'Add a furnace subsystem.', reasoning: 'It expands Alchemy.', clarificationQuestion: null, changeSet: { title: 'Expand Alchemy', rationale: '', expectedEffect: '', operations: [{ type: 'ADD_NODE', node: { id: 'furnace', label: 'Furnace', gameType: 'system', importance: 'supporting', description: null } }] }, noChanges: false });
+  const noOp = AskDesignResponseSchema.safeParse({ interpretation: 'Already present.', reasoning: null, clarificationQuestion: null, changeSet: null, noChanges: true });
   assert.equal(clarification.success, true);
   assert.equal(change.success, true);
+  assert.equal(noOp.success, true);
 });
 
 test('Ask AI prompt includes canonical hierarchy and exact edge IDs', () => {
@@ -22,6 +24,7 @@ test('Ask AI prompt includes canonical hierarchy and exact edge IDs', () => {
   const prompt = askDesignPrompt(request);
   assert.match(prompt, /contains means parent → child subsystem decomposition/);
   assert.match(prompt, /alchemy-furnace/);
+  assert.match(prompt, /DELTA from the CURRENT canonical skeleton/);
 });
 
 test('Ask AI validation rejects invented edge IDs', () => {

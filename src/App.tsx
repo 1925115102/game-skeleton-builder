@@ -273,6 +273,7 @@ function App() {
   const [showDesignAssistant, setShowDesignAssistant] = useState(false);
   const [designAssistantLoading, setDesignAssistantLoading] = useState(false);
   const [designAssistantError, setDesignAssistantError] = useState<string | null>(null);
+  const [designAssistantNotice, setDesignAssistantNotice] = useState<string | null>(null);
   const [designAssistantAnalysis, setDesignAssistantAnalysis] = useState<Pick<AIReviewResult, 'summary' | 'strengths' | 'issues'> | null>(null);
   const [designChangeSet, setDesignChangeSet] = useState<DesignChangeSet | null>(null);
   const [suggestionsByIssue, setSuggestionsByIssue] = useState<Record<string, DesignChangeSet>>({});
@@ -1088,6 +1089,7 @@ function App() {
     const cached = suggestionsByIssue[issue.id];
     if (cached) {
       setDesignAssistantError(null);
+      setDesignAssistantNotice(null);
       setSelectedDesignIssue(issue);
       setDesignChangeSet(cached);
       setAssistantHighlight(
@@ -1101,6 +1103,7 @@ function App() {
     try {
       setDesignAssistantLoading(true);
       setDesignAssistantError(null);
+      setDesignAssistantNotice(null);
       setSelectedDesignIssue(issue);
       setDesignChangeSet(null);
       setAskDesignResponse(null);
@@ -1112,11 +1115,16 @@ function App() {
         body: JSON.stringify({ project: { name: projectName, brief: projectBrief }, skeleton: serializeSkeleton(nodes, edges), issue }),
       });
       if (!response.ok) throw new Error(`Server returned ${response.status}.`);
-      const data = await response.json() as { result: DesignChangeSet };
-      setDesignChangeSet(data.result);
-      setSuggestionsByIssue((current) => ({ ...current, [issue.id]: data.result }));
+      const data = await response.json() as { result: DesignChangeSet | null; noChanges: boolean; message?: string };
+      if (!data.result) {
+        setDesignAssistantNotice(data.message ?? 'This part of the design is already represented in the current skeleton, so no changes are needed.');
+        return;
+      }
+      const changeSet = data.result;
+      setDesignChangeSet(changeSet);
+      setSuggestionsByIssue((current) => ({ ...current, [issue.id]: changeSet }));
       setAssistantHighlight(
-        highlightForChangeSet(data.result, nodesRef.current, edgesRef.current)
+        highlightForChangeSet(changeSet, nodesRef.current, edgesRef.current)
       );
     } catch (error) {
       console.error('Design Assistant change-set error:', error);
@@ -1132,6 +1140,7 @@ function App() {
     try {
       setDesignAssistantLoading(true);
       setDesignAssistantError(null);
+      setDesignAssistantNotice(null);
       setSelectedDesignIssue(null);
       setDesignChangeSet(null);
       setAssistantHighlight({ nodeIds: [], edgeIds: [] });
@@ -1395,6 +1404,7 @@ function App() {
           applying={isApplyingChangeSet}
           analysisStale={effectiveAnalysisStale}
           error={designAssistantError}
+          notice={designAssistantNotice}
           onRequestChange={requestDesignChangeSet}
           onAnalyze={requestDesignAnalysis}
           onApprove={approveDesignChangeSet}

@@ -50,4 +50,7 @@ export const AskDesignResponseSchema = z.object({
   reasoning: z.string().nullable(),
   clarificationQuestion: z.string().nullable(),
   changeSet: DesignChangeSetSchema.nullable(),
+  // Required for OpenAI strict structured output. A no-op is useful when the
+  // requested state already exists in the canonical skeleton.
+  noChanges: z.boolean(),
 });

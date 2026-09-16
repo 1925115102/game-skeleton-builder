@@ -19,6 +19,7 @@ interface Props {
   applying: boolean;
   analysisStale: boolean;
   error: string | null;
+  notice: string | null;
   onRequestChange: (issue: AIIssue) => void;
   onAnalyze: () => void;
   onApprove: () => void;
@@ -32,7 +33,7 @@ interface Props {
 }
 
 export default function DesignAssistantPanel(props: Props) {
-  const { analysis, changeSet, selectedIssue, suggestedIssueIds, appliedIssueIds, nodes, edges, loading, applying, analysisStale, error, onRequestChange, onAnalyze, onApprove, onReject, onBack, onClose, askResponse, askHistory, onAsk, onDismissAsk } = props;
+  const { analysis, changeSet, selectedIssue, suggestedIssueIds, appliedIssueIds, nodes, edges, loading, applying, analysisStale, error, notice, onRequestChange, onAnalyze, onApprove, onReject, onBack, onClose, askResponse, askHistory, onAsk, onDismissAsk } = props;
   const [askInput, setAskInput] = useState('');
   const showingSuggestion = Boolean(changeSet && (selectedIssue || askResponse));
   const showingAskClarification = Boolean(askResponse?.clarificationQuestion && !changeSet);
@@ -44,9 +45,11 @@ export default function DesignAssistantPanel(props: Props) {
     <h2>AI Design Assistant</h2>
     <p style={introStyle}>AI analyzes and proposes. You approve every graph change.</p>
     {error && <p role="alert" style={errorStyle}>{error}</p>}
+    {notice && <p role="status" style={noticeStyle}>{notice}</p>}
     {!showingSuggestion && <section style={askStyle}>
       <h3 style={{ marginTop: 0 }}>Ask AI</h3>
       <p style={detailStyle}>Describe the change you want to make. AI will propose a reviewable design change.</p>
+      {askResponse?.noChanges && <p role="status" style={noticeStyle}>{askResponse.interpretation}</p>}
       {showingAskClarification && <p style={clarificationStyle}>{askResponse?.clarificationQuestion}</p>}
       <textarea value={askInput} rows={3} placeholder={showingAskClarification ? 'Answer the clarification…' : 'For example: Add five elemental materials under Resources.'} onChange={(event) => setAskInput(event.target.value)} />
       <button style={primaryButtonStyle} disabled={loading || !askInput.trim()} onClick={() => { onAsk(askInput.trim()); setAskInput(''); }}>{loading ? 'Thinking…' : showingAskClarification ? 'Answer & Continue' : 'Ask AI'}</button>
@@ -106,6 +109,7 @@ const eyebrowStyle = { fontSize: '12px', color: '#64748b', margin: '10px 0' };
 const actionStyle = { display: 'block', color: '#4f46e5', fontSize: '11px', fontWeight: 700, textTransform: 'uppercase' as const, marginBottom: '2px' };
 const staleStyle = { padding: '8px', borderRadius: '6px', background: '#fff7ed', color: '#9a3412', fontSize: '13px' };
 const errorStyle = { padding: '8px', borderRadius: '6px', background: '#fef2f2', color: '#b91c1c', fontSize: '13px' };
+const noticeStyle = { padding: '8px', borderRadius: '6px', background: '#eff6ff', color: '#1d4ed8', fontSize: '13px' };
 const issueSwitchStyle = { display: 'block', width: '100%', padding: '7px', marginBottom: '5px', textAlign: 'left' as const, border: '1px solid #dbe3ee', borderRadius: '5px', background: '#fff', cursor: 'pointer', fontSize: '12px' };
 const resolvedCardStyle = { ...cardStyle, borderColor: '#bbf7d0', background: '#f0fdf4' };
 const appliedNoticeStyle = { padding: '8px', borderRadius: '6px', background: '#f0fdf4', color: '#166534', fontSize: '13px' };

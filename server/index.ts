@@ -48,7 +48,7 @@ import {
   changePrompt,
   askDesignPrompt,
 } from './designAssistantPrompt';
-import { validateExistingEdgeReferences } from './designAssistantValidation';
+import { normalizeAndValidateChangeSet } from './designAssistantValidation';
 import { GameReportRequestSchema, GameReportSchema } from './gameReportSchema';
 import { gameReportPrompt } from './gameReportPrompt';
 
@@ -280,9 +280,12 @@ app.post('/api/design-assistant/change-set', async (req, res) => {
       text: { format: zodTextFormat(DesignChangeSetSchema, 'design_change_set') },
     });
     if (!response.output_parsed) throw new Error('AI returned no parsed design change set.');
-    const referenceError = validateExistingEdgeReferences(parsed.data, response.output_parsed);
-    if (referenceError) throw new Error(referenceError);
-    return res.json({ result: response.output_parsed });
+    const validation = normalizeAndValidateChangeSet(parsed.data, response.output_parsed);
+    if (!validation.success) throw new Error(validation.error);
+    if (!validation.changeSet) {
+      return res.json({ result: null, noChanges: true, message: 'This part of the design is already represented in the current skeleton, so no changes are needed.' });
+    }
+    return res.json({ result: validation.changeSet, noChanges: false });
   } catch (error) {
     logServerError('Design Assistant change set failed', error);
     return res.status(500).json({ error: 'Design change request failed.' });
@@ -300,11 +303,21 @@ app.post('/api/design-assistant/ask', async (req, res) => {
     });
     if (!response.output_parsed) throw new Error('AI returned no parsed Ask AI response.');
     const result = response.output_parsed;
-    if (result.changeSet && result.clarificationQuestion) throw new Error('AI returned both a change set and a clarification.');
-    if (!result.changeSet && !result.clarificationQuestion) throw new Error('AI returned neither a change set nor a clarification.');
+    const responseModes = Number(Boolean(result.changeSet)) + Number(Boolean(result.clarificationQuestion)) + Number(result.noChanges);
+    if (responseModes !== 1) throw new Error('AI returned an invalid Ask AI response mode.');
     if (result.changeSet) {
-      const referenceError = validateExistingEdgeReferences(parsed.data, result.changeSet);
-      if (referenceError) throw new Error(referenceError);
+      const validation = normalizeAndValidateChangeSet(parsed.data, result.changeSet);
+      if (!validation.success) throw new Error(validation.error);
+      if (!validation.changeSet) {
+        return res.json({ result: {
+          interpretation: 'This part of the design is already represented in the current skeleton, so no changes are needed.',
+          reasoning: null,
+          clarificationQuestion: null,
+          changeSet: null,
+          noChanges: true,
+        } });
+      }
+      result.changeSet = validation.changeSet;
     }
     return res.json({ result });
   } catch (error) {

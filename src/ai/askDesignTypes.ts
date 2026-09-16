@@ -5,6 +5,7 @@ export interface AskDesignResponse {
   reasoning: string | null;
   clarificationQuestion: string | null;
   changeSet: DesignChangeSet | null;
+  noChanges: boolean;
 }
 
 export interface AskDesignExchange {
