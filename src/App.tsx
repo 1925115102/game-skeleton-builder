@@ -1,5 +1,6 @@
 import {
   useCallback,
+  useEffect,
   useRef,
   useState,
   type ChangeEvent,
@@ -9,10 +10,6 @@ import type {
   IssueFixOption,
 } from './analyzer/issueFixMap';
 
-import {
-  getProjectBrief,
-  isValidGameState,
-} from './gameStateValidation';
 
 import {
   analyzeSkeleton
@@ -57,10 +54,6 @@ import {
   serializeSkeleton,
 } from './ai/skeletonSerializer';
 
-import {
-  buildSkeletonReviewPrompt,
-} from './ai/skeletonPrompt';
-
 import AIAnalysisPanel
   from './AIAnalysisPanel';
 
@@ -83,6 +76,9 @@ import type {
   GuidedDesignProposal,
   ProposedDesignNode,
 } from './guidedDesign/guidedDesignTypes';
+import DesignAssistantPanel from './DesignAssistantPanel';
+import { applyDesignChangeSet, type DesignChangeSet } from './ai/changeSet';
+import { createProjectMetadata, getProjectExportFilename, migrateProjectDocument, type ProjectMetadata } from './projectState';
 
 // ======================================================
 // Custom Node Components
@@ -266,7 +262,7 @@ function App() {
       null
     );
 
-  const [isAIReviewLoading, setIsAIReviewLoading] =
+  const [isAIReviewLoading] =
     useState(false);
 
   const [aiReviewError, setAIReviewError] =
@@ -277,6 +273,15 @@ function App() {
 
   const [projectBrief, setProjectBrief] =
     useState('');
+
+  const [projectMetadata, setProjectMetadata] =
+    useState<ProjectMetadata>(() => createProjectMetadata());
+
+  const [showDesignAssistant, setShowDesignAssistant] = useState(false);
+  const [designAssistantLoading, setDesignAssistantLoading] = useState(false);
+  const [designAssistantError, setDesignAssistantError] = useState<string | null>(null);
+  const [designAssistantAnalysis, setDesignAssistantAnalysis] = useState<Pick<AIReviewResult, 'summary' | 'strengths' | 'issues'> | null>(null);
+  const [designChangeSet, setDesignChangeSet] = useState<DesignChangeSet | null>(null);
 
   const [showProjectPanel, setShowProjectPanel] =
     useState(false);
@@ -312,13 +317,17 @@ function App() {
 
   const getGameState = useCallback((): GameState => {
     return {
-      version: '0.1',
-      name: projectName,
-      brief: projectBrief,
+      version: '0.2',
+      project: {
+        ...projectMetadata,
+        name: projectName,
+        brief: projectBrief,
+        updatedAt: new Date().toISOString(),
+      },
       nodes,
       edges,
     };
-  }, [projectName, projectBrief, nodes, edges]);
+  }, [projectName, projectBrief, projectMetadata, nodes, edges]);
 
   const importInputRef =
     useRef<HTMLInputElement | null>(null);
@@ -360,8 +369,7 @@ function App() {
 
     anchor.href = url;
 
-    anchor.download =
-      'game-skeleton.json';
+    anchor.download = getProjectExportFilename(projectName);
 
     document.body.appendChild(anchor);
 
@@ -371,7 +379,7 @@ function App() {
 
     URL.revokeObjectURL(url);
 
-  }, [getGameState]);
+  }, [getGameState, projectName]);
 
   // ====================================================
   // Import JSON
@@ -408,7 +416,8 @@ function App() {
         // Basic Validation
         // ---------------------------------------------
 
-        if (!isValidGameState(parsed)) {
+        const migrated = migrateProjectDocument(parsed);
+        if (!migrated) {
           throw new Error(
             'Invalid GameState format.'
           );
@@ -419,10 +428,11 @@ function App() {
         // Load Graph
         // ---------------------------------------------
 
-        setNodes(parsed.nodes);
-        setEdges(parsed.edges);
-        setProjectName(parsed.name);
-        setProjectBrief(getProjectBrief(parsed));
+        setNodes(migrated.nodes);
+        setEdges(migrated.edges);
+        setProjectName(migrated.project.name);
+        setProjectBrief(migrated.project.brief);
+        setProjectMetadata(migrated.project);
 
 
         // ---------------------------------------------
@@ -723,6 +733,7 @@ function App() {
         data: {
           relation: 'leads_to',
         },
+        type: 'smoothstep',
       };
 
 
@@ -736,6 +747,24 @@ function App() {
     },
     [setEdges]
   );
+
+  useEffect(() => {
+    setEdges((currentEdges) => currentEdges.map((edge) => {
+      const source = nodes.find((node) => node.id === edge.source);
+      const target = nodes.find((node) => node.id === edge.target);
+      if (!source || !target) return edge;
+      const dx = target.position.x - source.position.x;
+      const dy = target.position.y - source.position.y;
+      const direction = Math.abs(dx) >= Math.abs(dy)
+        ? dx >= 0 ? ['Right', 'Left'] : ['Left', 'Right']
+        : dy >= 0 ? ['Bottom', 'Top'] : ['Top', 'Bottom'];
+      const sourceHandle = `source-${direction[0].toLowerCase()}`;
+      const targetHandle = `target-${direction[1].toLowerCase()}`;
+      return edge.sourceHandle === sourceHandle && edge.targetHandle === targetHandle && edge.type === 'smoothstep'
+        ? edge
+        : { ...edge, sourceHandle, targetHandle, type: 'smoothstep' };
+    }));
+  }, [nodes, setEdges]);
 
 
   // ====================================================
@@ -1092,85 +1121,6 @@ function App() {
   );  
 
   // ====================================================
-  // AI
-  // ====================================================
-  const testAISkeleton = useCallback(
-    async () => {
-      try {
-        setIsAIReviewLoading(true);
-        setAIReviewError(null);
-        setAIReview(null);
-
-        const skeleton =
-          serializeSkeleton(
-            nodes,
-            edges
-          );
-
-        const prompt =
-          buildSkeletonReviewPrompt(
-            skeleton
-          );
-
-        const response =
-          await fetch(
-            'http://localhost:3001/api/review',
-            {
-              method: 'POST',
-
-              headers: {
-                'Content-Type':
-                  'application/json',
-              },
-
-              body: JSON.stringify({
-                prompt,
-              }),
-            }
-          );
-
-        if (!response.ok) {
-          const errorText =
-            await response.text();
-
-          throw new Error(
-            `Server returned ${response.status}: ${errorText}`
-          );
-        }
-
-        const data =
-          await response.json();
-
-        const review =
-          data.result as AIReviewResult;
-
-        setAIReview(review);
-
-      } catch (error) {
-
-        console.error(
-          'AI Review Error:',
-          error
-        );
-
-        setAIReviewError(
-          'AI review failed. Check that the AI server is running and try again.'
-        );
-
-      } finally {
-
-        setIsAIReviewLoading(false);
-
-      }
-    },
-    [
-      nodes,
-      edges,
-    ]
-  );
-
-
-  // ====================================================
   // Guided Design
   // ====================================================
 
@@ -1451,6 +1401,61 @@ function App() {
     setNodes,
   ]);
 
+  const requestDesignAnalysis = useCallback(async () => {
+    try {
+      setShowDesignAssistant(true);
+      setDesignAssistantLoading(true);
+      setDesignAssistantError(null);
+      setDesignChangeSet(null);
+      const response = await fetch('http://localhost:3001/api/design-assistant/analyze', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ project: { name: projectName, brief: projectBrief }, skeleton: serializeSkeleton(nodes, edges) }),
+      });
+      if (!response.ok) throw new Error(`Server returned ${response.status}.`);
+      const data = await response.json() as { result: Pick<AIReviewResult, 'summary' | 'strengths' | 'issues'> };
+      setDesignAssistantAnalysis(data.result);
+    } catch (error) {
+      console.error('Design Assistant analysis error:', error);
+      setDesignAssistantError('Design analysis failed. Check that the AI server is running and try again.');
+    } finally {
+      setDesignAssistantLoading(false);
+    }
+  }, [projectName, projectBrief, nodes, edges]);
+
+  const requestDesignChangeSet = useCallback(async (issue: AIIssue) => {
+    try {
+      setDesignAssistantLoading(true);
+      setDesignAssistantError(null);
+      const response = await fetch('http://localhost:3001/api/design-assistant/change-set', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ project: { name: projectName, brief: projectBrief }, skeleton: serializeSkeleton(nodes, edges), issue }),
+      });
+      if (!response.ok) throw new Error(`Server returned ${response.status}.`);
+      const data = await response.json() as { result: DesignChangeSet };
+      setDesignChangeSet(data.result);
+    } catch (error) {
+      console.error('Design Assistant change-set error:', error);
+      setDesignAssistantError('Design change proposal failed. Try again.');
+    } finally {
+      setDesignAssistantLoading(false);
+    }
+  }, [projectName, projectBrief, nodes, edges]);
+
+  const approveDesignChangeSet = useCallback(() => {
+    if (!designChangeSet) return;
+    const result = applyDesignChangeSet(nodes, edges, designChangeSet);
+    if (!result.success) {
+      setDesignAssistantError(`Change set was not applied: ${result.error}`);
+      return;
+    }
+    setNodes(result.nodes);
+    setEdges(result.edges);
+    setDesignChangeSet(null);
+    setDesignAssistantAnalysis(null);
+  }, [designChangeSet, nodes, edges, setNodes, setEdges]);
+
 
   // ====================================================
   // Render
@@ -1566,10 +1571,11 @@ function App() {
                 onClick={() => {
                   setShowProjectPanel(true);
                   setShowGuidedDesign(false);
+                  setShowDesignAssistant(false);
                 }}
                 style={toolbarButtonStyle}
               >
-                Project
+                Project: {projectName || 'Untitled Game'}
               </button>
 
               <button
@@ -1580,23 +1586,13 @@ function App() {
               </button>
               
               <button
-                onClick={testAISkeleton}
+                onClick={requestDesignAnalysis}
                 style={toolbarButtonStyle}
-                disabled={isAIReviewLoading}
+                disabled={designAssistantLoading}
               >
-                {isAIReviewLoading
-                  ? 'Reviewing...'
-                  : 'AI Review'}
-              </button>
-
-              <button
-                onClick={() => requestGuidedDesign()}
-                style={toolbarButtonStyle}
-                disabled={isGuidedDesignLoading}
-              >
-                {isGuidedDesignLoading
-                  ? 'Developing...'
-                  : 'Guided Design'}
+                {designAssistantLoading
+                  ? 'Analyzing...'
+                  : 'AI Design Assistant'}
               </button>
 
               <input
@@ -1626,7 +1622,20 @@ function App() {
           INSPECTOR
       ================================================= */}
 
-      {isAIReviewLoading ? (
+      {showDesignAssistant ? (
+
+        <DesignAssistantPanel
+          analysis={designAssistantAnalysis}
+          changeSet={designChangeSet}
+          loading={designAssistantLoading}
+          error={designAssistantError}
+          onRequestChange={requestDesignChangeSet}
+          onApprove={approveDesignChangeSet}
+          onReject={() => setDesignChangeSet(null)}
+          onClose={() => setShowDesignAssistant(false)}
+        />
+
+      ) : isAIReviewLoading ? (
 
         <AILoadingPanel />
 
@@ -1686,6 +1695,7 @@ function App() {
         <ProjectPanel
           name={projectName}
           brief={projectBrief}
+          projectId={projectMetadata.id}
           onNameChange={setProjectName}
           onBriefChange={setProjectBrief}
           onClose={() => setShowProjectPanel(false)}

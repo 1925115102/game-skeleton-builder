@@ -33,10 +33,9 @@ function GameNodeComponent({
       ].join(' ')}
     >
 
-      <Handle
-        type="target"
-        position={Position.Left}
-      />
+      {([Position.Top, Position.Right, Position.Bottom, Position.Left] as const).map((position) => (
+        <Handle key={`target-${position}`} id={`target-${position}`} type="target" position={position} />
+      ))}
 
 
       <div className="game-node-type">
@@ -61,10 +60,9 @@ function GameNodeComponent({
       )}
 
 
-      <Handle
-        type="source"
-        position={Position.Right}
-      />
+      {([Position.Top, Position.Right, Position.Bottom, Position.Left] as const).map((position) => (
+        <Handle key={`source-${position}`} id={`source-${position}`} type="source" position={position} />
+      ))}
 
     </div>
   );

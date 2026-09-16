@@ -86,9 +86,17 @@ export interface GameState {
 
   version: string;
 
-  name: string;
+  name?: string;
 
   brief?: string;
+
+  project?: {
+    id: string;
+    name: string;
+    brief: string;
+    createdAt: string;
+    updatedAt: string;
+  };
 
   nodes: GameNode[];
 

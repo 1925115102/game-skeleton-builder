@@ -4,6 +4,15 @@ import dotenv from 'dotenv';
 import OpenAI from 'openai';
 
 import {
+  dirname,
+  resolve,
+} from 'node:path';
+
+import {
+  fileURLToPath,
+} from 'node:url';
+
+import {
   fetch as undiciFetch,
   ProxyAgent,
 } from 'undici';
@@ -25,7 +34,31 @@ import {
   buildGuidedDesignPrompt,
 } from './guidedDesignPrompt';
 
-dotenv.config();
+import {
+  DesignAnalysisRequestSchema,
+  DesignAnalysisSchema,
+  DesignChangeRequestSchema,
+  DesignChangeSetSchema,
+} from './designAssistantSchema';
+
+import {
+  analysisPrompt,
+  changePrompt,
+} from './designAssistantPrompt';
+
+const serverDirectory = dirname(
+  fileURLToPath(import.meta.url)
+);
+
+const rootEnvPath = resolve(
+  serverDirectory,
+  '..',
+  '.env'
+);
+
+const dotenvResult = dotenv.config({
+  path: rootEnvPath,
+});
 
 const app = express();
 
@@ -34,27 +67,40 @@ app.use(express.json());
 
 
 // ==========================================
-// Proxy
-// ==========================================
-
-const proxyAgent = new ProxyAgent(
-  'http://127.0.0.1:7897'
-);
-
-
-// ==========================================
 // OpenAI Client
 // ==========================================
 
-const client = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY,
+const proxyUrl =
+  process.env.OPENAI_PROXY_URL?.trim();
 
-  fetch: undiciFetch,
+const client = proxyUrl
+  ? new OpenAI({
+      apiKey: process.env.OPENAI_API_KEY,
+      fetch: undiciFetch as unknown as typeof globalThis.fetch,
+      fetchOptions: {
+        dispatcher: new ProxyAgent(proxyUrl),
+      } as never,
+    })
+  : new OpenAI({
+      apiKey: process.env.OPENAI_API_KEY,
+    });
 
-  fetchOptions: {
-    dispatcher: proxyAgent,
-  },
-});
+
+function logServerError(
+  context: string,
+  error: unknown
+) {
+  if (error instanceof Error) {
+    console.error(`${context}:`, {
+      name: error.name,
+      message: error.message,
+      stack: error.stack,
+    });
+    return;
+  }
+
+  console.error(`${context}:`, error);
+}
 
 
 // ==========================================
@@ -187,12 +233,51 @@ app.post('/api/guided-design', async (req, res) => {
 
     return res.json({ result: proposal });
   } catch (error: any) {
-    console.error('Guided Design failed:', error);
+    logServerError(
+      'Guided Design OpenAI request failed',
+      error
+    );
 
     return res.status(500).json({
       error: 'Guided Design request failed.',
-      message: error?.message ?? 'Unknown error',
     });
+  }
+});
+
+
+app.post('/api/design-assistant/analyze', async (req, res) => {
+  const parsed = DesignAnalysisRequestSchema.safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: 'Invalid design analysis request.' });
+
+  try {
+    const response = await client.responses.parse({
+      model: 'gpt-5.6-luna',
+      input: analysisPrompt(parsed.data),
+      text: { format: zodTextFormat(DesignAnalysisSchema, 'design_analysis') },
+    });
+    if (!response.output_parsed) throw new Error('AI returned no parsed design analysis.');
+    return res.json({ result: response.output_parsed });
+  } catch (error) {
+    logServerError('Design Assistant analysis failed', error);
+    return res.status(500).json({ error: 'Design analysis request failed.' });
+  }
+});
+
+app.post('/api/design-assistant/change-set', async (req, res) => {
+  const parsed = DesignChangeRequestSchema.safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: 'Invalid design change request.' });
+
+  try {
+    const response = await client.responses.parse({
+      model: 'gpt-5.6-luna',
+      input: changePrompt(parsed.data),
+      text: { format: zodTextFormat(DesignChangeSetSchema, 'design_change_set') },
+    });
+    if (!response.output_parsed) throw new Error('AI returned no parsed design change set.');
+    return res.json({ result: response.output_parsed });
+  } catch (error) {
+    logServerError('Design Assistant change set failed', error);
+    return res.status(500).json({ error: 'Design change request failed.' });
   }
 });
 
@@ -206,5 +291,14 @@ const PORT = 3001;
 app.listen(PORT, () => {
   console.log(
     `Game Skeleton AI server running on http://localhost:${PORT}`
+  );
+  console.log(
+    `Root .env: ${dotenvResult.error ? 'not found' : 'loaded'}`
+  );
+  console.log(
+    `API key configured: ${process.env.OPENAI_API_KEY?.trim() ? 'yes' : 'no'}`
+  );
+  console.log(
+    `OpenAI proxy: ${proxyUrl ? 'configured' : 'direct'}`
   );
 });
